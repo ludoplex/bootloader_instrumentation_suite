@@ -44,7 +44,7 @@ def get_entrypoint(elf):
 
 
 def get_c_function_names(elf, cc="/usr/bin/"):
-    cmd = '%sreadelf -W -s %s | grep FUNC 2>/dev/null' % (cc, elf)
+    cmd = f'{cc}readelf -W -s {elf} | grep FUNC 2>/dev/null'
     output = shell.run_multiline_cmd(cmd)
 
     results = []
@@ -59,13 +59,10 @@ def get_c_function_names(elf, cc="/usr/bin/"):
 
 
 def get_image_size(image):
-    cmd = "/usr/bin/wc -c %s" % (image)
+    cmd = f"/usr/bin/wc -c {image}"
     output = shell.run_cmd(cmd)
     output = output.split()
-    if len(output) == 2:
-        return long(output[0], 0)
-    else:
-        return -1
+    return long(output[0], 0) if len(output) == 2 else -1
 
 
 def get_min_max_pcs(elf):
@@ -84,15 +81,11 @@ def get_min_max_pcs(elf):
 
 def get_section_headers(elf):
     ds = r2.get(elf, "iSj")
-    index = 0
     headers = []
     if len(ds) > 0:
         # flags key differs between r2 versions
-        if "flags" in ds[0]:
-            flags = "flags"
-        else:
-            flags = "perm"
-    for d in ds:
+        flags = "flags" if "flags" in ds[0] else "perm"
+    for index, d in enumerate(ds):
         h = {
             "number": index,
             "name": d["name"],
@@ -103,7 +96,6 @@ def get_section_headers(elf):
             "flags": d[flags]
         }
         headers.append(h)
-        index += 1
     return headers
 
 

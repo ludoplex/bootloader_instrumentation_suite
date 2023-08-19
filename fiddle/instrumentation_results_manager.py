@@ -73,12 +73,10 @@ import logging
 class DelTargetAction(PythonInteractiveAction):
     def execute(self, out, err):
         ret = super(DelTargetAction, self).execute(sys.stdout, err)
-        if isinstance(ret,
-                      exceptions.CatchedException) or isinstance(ret,
-                                                                 Exception):
+        if isinstance(ret, (exceptions.CatchedException, Exception)):
             if self.task:
                 for f in self.task.targets:
-                    cmd = "rm -rf %s" % f
+                    cmd = f"rm -rf {f}"
                     os.system(cmd)
         return ret
 
@@ -87,6 +85,9 @@ _manager_singleton = None
 
 
 def task_manager(instance_id=None, verbose=False):
+
+
+
     class TestTaskManager(object):
         def __init__(self, instance_id, verbose):
             self.ALL_GROUPS = 0
@@ -108,6 +109,7 @@ def task_manager(instance_id=None, verbose=False):
             self.tasks[subgroup] = l
 
         def list_tasks(self):
+
             class List():
                 def __init__(self, obj, subgroup):
                     self.obj = obj
@@ -115,12 +117,19 @@ def task_manager(instance_id=None, verbose=False):
 
                 def list_tasks(self):
                     return self.obj._list_tasks(self.subgroup)
-            ts = []
-            for k in self.grouporder:
-                ts.append(("task_%s_subgroup" % self.build_name(k),
-                           List(self, k).list_tasks))
-            ts.append(("task_%s_subgroup_all_" % self.build_name(),
-                       List(self, self.ALL_GROUPS).list_tasks))
+            ts = [
+                (
+                    f"task_{self.build_name(k)}_subgroup",
+                    List(self, k).list_tasks,
+                )
+                for k in self.grouporder
+            ]
+            ts.append(
+                (
+                    f"task_{self.build_name()}_subgroup_all_",
+                    List(self, self.ALL_GROUPS).list_tasks,
+                )
+            )
             return ts
 
         def _list_tasks(self, subgroup):
@@ -129,9 +138,9 @@ def task_manager(instance_id=None, verbose=False):
                 alldeps = []
                 allfiles = []
                 for subgroup in self.grouporder:
-                    tasks = self.tasks[subgroup]
                     subfiles = []
                     if subgroup in self.enabled:
+                        tasks = self.tasks[subgroup]
                         for t in tasks:
                             subfiles.extend(t.file_dep)
                             alldeps.append(self.build_name(subgroup))
@@ -154,10 +163,10 @@ def task_manager(instance_id=None, verbose=False):
                         'targets': inst.targets,
                         'file_dep': inst.file_dep,
                         'task_dep': inst.task_dep,
+                        'basename': inst.name,
+                        'name': self.build_name(subgroup),
                     }
-                    r['basename'] = inst.name
-                    r['name'] = self.build_name(subgroup)
-                    r.update(inst.other)
+                    r |= inst.other
                     if subgroup not in self.enabled:
                         del r['targets']
                         del r['actions']
@@ -170,13 +179,11 @@ def task_manager(instance_id=None, verbose=False):
                         yield r
 
         def task_name(self, task, subgroup):
-            return "%s:%s" % (task.name, self.build_name(subgroup))
+            return f"{task.name}:{self.build_name(subgroup)}"
 
         def build_name(self, subgroup=""):
-            if not subgroup:
-                return self.instance_id
-            else:
-                return "%s:%s" % (subgroup, self.instance_id)
+            return self.instance_id if not subgroup else f"{subgroup}:{self.instance_id}"
+
 
     global _manager_singleton
     if not _manager_singleton:
@@ -194,23 +201,17 @@ class TestTask(object):
         return d in cls.names
 
     def __init__(self, name, unique=False):
-        if unique:
-            self.name = name
-        else:
-            self.name = "%s_%s" % (name, self.__class__.__name__)
+        self.name = name if unique else f"{name}_{self.__class__.__name__}"
         if not self.exists(self.name):
             self.names.add(self.name)
         else:
-            raise Exception("Task of name %s exists" % self.name)
+            raise Exception(f"Task of name {self.name} exists")
 
         for i in ["actions", "targets", "file_dep", "other", "task_dep"]:
             if not hasattr(self, i):
                 default = {} if i == 'other' else []
-                listname = "list_%s" % i
-                if i is not "other":
-                    val = getattr(self, listname)() if hasattr(self, listname) else default
-                else:
-                    val = getattr(self, listname)() if hasattr(self, listname) else default
+                listname = f"list_{i}"
+                val = getattr(self, listname)() if hasattr(self, listname) else default
                 setattr(self, i, val)
 
 class CopyFileTask(TestTask):
@@ -221,10 +222,10 @@ class CopyFileTask(TestTask):
         return d in cls.dsts
 
     def __init__(self, src, dst):
-        super(CopyFileTask, self).__init__("%s->%s" % (src, dst), True)
+        super(CopyFileTask, self).__init__(f"{src}->{dst}", True)
         self.src = src
         self.dst = dst
-        self.actions = ["cp -f %s %s" % (self.src, self.dst)]
+        self.actions = [f"cp -f {self.src} {self.dst}"]
         if self.dst in MkdirTask.dirs or os.path.isdir(self.dst):
             target = os.path.join(self.dst, os.path.basename(self.src))
         else:
@@ -232,7 +233,7 @@ class CopyFileTask(TestTask):
         self.targets = [target]
         self.file_dep = [self.src]
         if self.exists(target):
-            raise Exception("Duplicate file copy target %s" % target)
+            raise Exception(f"Duplicate file copy target {target}")
         self.dsts.add(target)
 
 
@@ -248,7 +249,7 @@ class MkdirTask(TestTask):
         self.dst = d
         self.actions = [(create_folder, [self.dst])]
         if self.dst in MkdirTask.dirs:
-            raise Exception("Duplicate of mkdir directory %s" % self.dst)
+            raise Exception(f"Duplicate of mkdir directory {self.dst}")
         MkdirTask.dirs.add(self.dst)
         self.targets = [self.dst]
 
@@ -273,8 +274,7 @@ class LazyCmdTask(TestTask):
 
     @property
     def actions(self):
-        act = [Main.populate_from_config(c) for c in self._actions]
-        return act
+        return [Main.populate_from_config(c) for c in self._actions]
 
     @actions.setter
     def actions(self, a):
@@ -308,7 +308,7 @@ class ActionListTask(TestTask):
         self.file_dep = self.fdeps
 
     def __repr__(self):
-        return "Actions %s" % self.actions
+        return f"Actions {self.actions}"
 
 
 class ResultsLoader(object):
@@ -329,39 +329,21 @@ class ResultsLoader(object):
     def stage_dependent(self, s):
         if getattr(s, "stage_dependent", False):
             return True
-        for (k, v) in s.iteritems():
-            if isinstance(v, str) and "{runtime.stage}":
-                return True
-        return False
+        return any(isinstance(v, str) for k, v in s.iteritems())
 
     def sub_stage(self, c, stage=None):
         sub = "{runtime.stage}"
-        if not stage:
-            substages = Main.raw.runtime.enabled_stages
-        else:
-            substages = [stage]
-        if sub in c:
-            cs = []
-            for sn in substages:
-                cs.append(c.replace(sub,
-                                    sn.stagename))
-            return cs
-        else:
-            return [c]
+        substages = Main.raw.runtime.enabled_stages if not stage else [stage]
+        return (
+            [c.replace(sub, sn.stagename) for sn in substages] if sub in c else [c]
+        )
 
-    def sub_host(sel, c):
+    def sub_host(self, c):
         s = "{runtime.host}"
-        if s in c:
-            return c.replace(s,
-                             Main.raw.runtime.current_host)
-        else:
-            return c
+        return c.replace(s, Main.raw.runtime.current_host) if s in c else c
 
     def noop(self, soft, i, dstdir, deps):
         return []
-        new_args = map(lambda x: x.parser_info(),
-                       filter(lambda x: x.from_arg,
-                              fs))
 
     def import_files(self, obj, rawobj, dstdir, mmap=False,
                      output_files=False, set_cfg=""):
@@ -404,10 +386,7 @@ class ResultsLoader(object):
                     target_location = os.path.join(dstdir, basename)
                     rawobj.path = target_location
                     v.path = target_location
-                    if hasattr(file_raw, "file_deps"):
-                        deps = file_raw.file_deps
-                    else:
-                        deps = []
+                    deps = file_raw.file_deps if hasattr(file_raw, "file_deps") else []
                     target = [target_location]
                     v._update_raw("path", target_location)
 
@@ -417,7 +396,7 @@ class ResultsLoader(object):
 
                     if hasattr(file_raw, "command"):
                         cmd = file_raw.command
-                        n = "%s_%s" % (v.software.name, f)
+                        n = f"{v.software.name}_{f}"
                         c = LazyCmdTask([cmd], deps, target, n)
                         if all(map(os.path.exists, target)):  # do not generate multiple times
                             c.uptodate = [True]
@@ -452,24 +431,19 @@ class ResultsLoader(object):
                                 setattr(getattr(file_raw, "path"),
                                         s.stagename, dst)
                                 if set_cfg:
-                                    self._update_runtime_config("%s.%s.files.%s.%s" %
-                                                                (set_cfg,
-                                                                 obj.name,
-                                                                 s.stagename,
-                                                                 f),
-                                                                dst)
+                                    self._update_runtime_config(
+                                        f"{set_cfg}.{obj.name}.files.{s.stagename}.{f}",
+                                        dst,
+                                    )
                                 if hasattr(file_raw, "global_name"):
                                     n = file_raw.global_name
                                     if "{runtime.stage}" in n:
                                         n = self.sub_stage(n, s)[0]
                                         n = Main.populate_from_config(n)
-                                        self._update_config("%s" % n,
-                                                            dst)
+                                        self._update_config(f"{n}", dst)
                                     else:
                                         n = Main.populate_from_config(n)
-                                        self._update_config("%s.%s" %
-                                                            (n, s.stagename),
-                                                            dst)
+                                        self._update_config(f"{n}.{s.stagename}", dst)
 
                         else:
                             # just setup path name
@@ -486,19 +460,13 @@ class ResultsLoader(object):
                     stage_dep = self.stage_dependent(file_raw)
                     if set_cfg and not stage_dep:
                         if not output_files:
-                            self._update_runtime_config("%s.%s.files.%s" %
-                                                        (set_cfg,
-                                                         obj.name,
-                                                         f),
-                                                        dst)
+                            self._update_runtime_config(f"{set_cfg}.{obj.name}.files.{f}", dst)
                         else:
                             for s in Main.stages:
-                                self._update_runtime_config("%s.%s.files.%s.%s"
-                                                            % (set_cfg,
-                                                               obj.name,
-                                                               s.stagename,
-                                                               f),
-                                                            dst)
+                                self._update_runtime_config(
+                                    f"{set_cfg}.{obj.name}.files.{s.stagename}.{f}",
+                                    dst,
+                                )
 
                     if hasattr(file_raw, "global_name") and not stage_dep:
                         n = file_raw.global_name
@@ -510,8 +478,7 @@ class ResultsLoader(object):
                             for s in Main.stages:
                                 n = self.sub_stage(n, s)[0]
                                 n = Main.populate_from_config(n)
-                                self._update_config("%s.%s" % (n, s.stagename),
-                                                    dst)
+                                self._update_config(f"{n}.{s.stagename}", dst)
         return tasks
 
     def get_build_name(self):
@@ -543,10 +510,7 @@ class ResultsLoader(object):
         return self._copy_file(from_path, to_path)
 
     def _update_runtime_config(self, attr, value):
-        if not attr.startswith("runtime."):
-            r = "runtime."
-        else:
-            r = ""
+        r = "runtime." if not attr.startswith("runtime.") else ""
         attr = r + attr
         self._update_config(attr, value)
 
@@ -569,10 +533,7 @@ class PostTraceLoader(ResultsLoader):
         if processes:
             self.processes = list(set(processes))
         else:
-            if self.plugin:
-                self.processes = [self.plugin.name]
-            else:
-                self.processes = []
+            self.processes = [self.plugin.name] if self.plugin else []
         self.task_adders = [self._setup_tasks,
                             self._setup_plugin,
                             self._process_tasks]
@@ -585,14 +546,13 @@ class PostTraceLoader(ResultsLoader):
         return os.path.join(self._test_path(p), rel)
 
     def _setup_tasks(self):
-        tasks = []
         targets = []
-        tasks.append(self._mkdir(self._test_path()))
-        for v in Main.object_config_lookup("PostProcess"):
-            if not all(map(lambda t: t in v.supported_traces,
-                           self.tracenames)):
-                continue
-            tasks.append(self._mkdir(self._process_path(v.name)))
+        tasks = [self._mkdir(self._test_path())]
+        tasks.extend(
+            self._mkdir(self._process_path(v.name))
+            for v in Main.object_config_lookup("PostProcess")
+            if all(map(lambda t: t in v.supported_traces, self.tracenames))
+        )
         return tasks
 
     def _setup_plugin(self):
@@ -610,11 +570,7 @@ class PostTraceLoader(ResultsLoader):
         pps = Main.object_config_lookup("PostProcess")
         enabled = False
         for k in pps:
-            if k.name not in self.processes:
-                enabled = False
-            else:
-                enabled = True
-
+            enabled = k.name in self.processes
             for stage in self.stages:
                 ts = self._get_postprocess_tasks(enabled, k, stage)
                 for t in ts:

@@ -63,7 +63,7 @@ class FileLabels():
         self.get_labels_from_file()
 
         for l in self.current_labels:
-            if not ((l.filename == self.filename) and (l.path == self.path)):
+            if l.filename != self.filename or l.path != self.path:
                 raise Exception("Found label with incorrect filename/path")
 
     def get_labels_from_file(self):
@@ -75,7 +75,7 @@ class FileLabels():
         self.updated_labels.update(self.current_labels)
 
     def insert_label(self, label):
-        if not ((label.filename == self.filename) and (label.path == self.path)):
+        if label.filename != self.filename or label.path != self.path:
             raise Exception("Trying to insert label with incorrect filename/path")
 
         if label in self.current_labels:
@@ -110,18 +110,15 @@ class FileLabels():
 
     def update_file(self):
         fullpath = os.path.join(self.path, self.filename)
-        f = open(fullpath, "r")
-        lines = f.readlines()
-        f.close()
+        with open(fullpath, "r") as f:
+            lines = f.readlines()
         nolabels = [l for l in lines if not SrcLabelTool.is_any_label(l)]
         for l in self.updated_labels:
             nolabels.insert(l.lineno-1, l.filerepr())
 
-        # rewrite file
-        f = open(fullpath, "w")
-        for line in nolabels:
-            f.write(line)
-        f.close()
+        with open(fullpath, "w") as f:
+            for line in nolabels:
+                f.write(line)
         self.get_labels_from_file()
 
 
@@ -158,29 +155,23 @@ class Label():
     @classmethod
     def parse_label(cls, line):
         labelre = re.compile(cls.labelformat)
-        matches = labelre.match(line)
-        if matches:
-            stage = matches.group(2)
-            value = matches.group(3)
-            name = matches.group(1)
-            raw = matches.group(0)
-            return (name, value, stage, raw)
-        else:
+        if not (matches := labelre.match(line)):
             return (None, None, None, None)
+        stage = matches[2]
+        return matches[1], matches[3], stage, matches[0]
 
     @classmethod
     def format_label(cls, ltype, values):
         if len(values) == 0:
             raise Exception("There should be at least 1 value per label type")
-        s = "#define ___%s_([0-9a-zA-Z_]+)_(spl|main)_(" % ltype
+        s = f"#define ___{ltype}_([0-9a-zA-Z_]+)_(spl|main)_("
         cls.ltype = ltype
         ltype = ltype
         cls.values = values
         for v in values:
-            s = s + "%s|" % v
+            s = f"{s}{v}|"
         s = s[:-1]  # cut final |
-        s = s + ")"
-        return s
+        return f"{s})"
 
     @classmethod
     def set_requirements(cls, reqs):
@@ -190,10 +181,7 @@ class Label():
     def check_requirements(cls, labellist):
         for l in labellist:
             if l in cls.reqs.keys():
-                found = False
-                for required_value in cls.reqs[l]:
-                    if required_value in labellist:
-                        found = True
+                found = any(required_value in labellist for required_value in cls.reqs[l])
                 if not found:
                     return False
         return True
@@ -279,8 +267,7 @@ class FramaCLabel(Label):
     Label.set_requirements(labelrequirements)
 
     def is_patch_value(self):
-        return (self.value == "PATCH") or (self.value == "ADDR_PATCH") \
-            or (self.value == "SUBPATCH")
+        return self.value in ["PATCH", "ADDR_PATCH", "SUBPATCH"]
 
 
 class SrcLabelTool():
@@ -344,10 +331,7 @@ class SrcLabelTool():
             return Label.is_any_label(src.readlines()[lineno])
 
     def get_labels(self, labelcls, name="", stage="", checkreqs=False, alltypes=False):
-        if alltypes:
-            ltype = None
-        else:
-            ltype = labelcls
+        ltype = None if alltypes else labelcls
         return SrcLabelTool._get_labels(self.srcfile, self.path, name, stage, checkreqs, ltype)
 
     @classmethod
@@ -358,49 +342,45 @@ class SrcLabelTool():
             labels = []
             alllabels = []
             i = 0
-            isasm = False
-            if srcfile[-3:] == ".S":
-                isasm = True
-            for l in src.readlines():
+            isasm = srcfile[-3:] == ".S"
+            for l in src:
                 i = i + 1
                 resultclass = None
-                if ltype is not None:
-                    resultclass = SrcLabelTool.is_a_label(ltype, l)
-                else:
-                    resultclass = cls.is_any_label(l)
+                resultclass = (
+                    SrcLabelTool.is_a_label(ltype, l)
+                    if ltype is not None
+                    else cls.is_any_label(l)
+                )
                 if resultclass is not None:
                     (lname, lvalue, lstage, raw) = resultclass.parse_label(l)
                     newlabel = resultclass(srcfile, i, isasm, lname, lstage, lvalue, raw, path)
                     alllabels.append(newlabel)
                     append = True
-                    if len(name) > 0 and (not name == newlabel.name):
+                    if len(name) > 0 and name != newlabel.name:
                         append = False
-                    if (len(stage) > 0) and (not stage == newlabel.stagename):
+                    if len(stage) > 0 and stage != newlabel.stagename:
                         append = False
                     if append:
                         labels.append(newlabel)
         if checkreqs and ltype:
             if not ltype.check_requirements(alllabels):
-                raise Exception("Labels don't meet requirements in %s (%s)" %
-                                (path, str([str(l) for l in alllabels])))
+                raise Exception(
+                    f"Labels don't meet requirements in {path} ({[str(l) for l in alllabels]})"
+                )
         return labels
 
     @classmethod
     def is_a_label(cls, labelcls, line):
         labelre = re.compile(labelcls.labelformat)
         matches = labelre.match(line)
-        if matches is not None:
-            return labelcls
-        else:
-            return None
+        return labelcls if matches is not None else None
 
     @classmethod
     def is_any_label(cls, line):
         global label_classes
         for c in label_classes.itervalues():
             labelre = re.compile(c.labelformat)
-            matches = labelre.match(line)
-            if matches:
+            if matches := labelre.match(line):
                 return c
         return None
 
@@ -411,20 +391,17 @@ class SrcLabelTool():
     def search_file(self):
         self.lineno = 0
         global label_classes
-        labels = {}
-        for label_name in label_classes.iterkeys():
-            labels[label_name] = []
+        labels = {label_name: [] for label_name in label_classes.iterkeys()}
         with open(os.path.join(self.path, self.srcfile), 'r') as f:
-            for line in f.readlines():
+            for line in f:
                 self.lineno += 1
 
-                for (label_name, label_class) in label_classes.iteritems():
+                for label_name, label_class in label_classes.iteritems():
                     (name, value, stage, raw) = label_class.parse_label(line)
                     if name and (stage == self.stagename):
                         label_list = labels[label_name]
                         label_list.append(self.new_label(label_class, name, value, raw))
                         labels[label_name] = label_list
-                        continue
         return labels
 
     def get_labels_of_type(self, clsname):
@@ -446,7 +423,7 @@ all_labels = {}
 def get_all_labels(root):
     global all_labels
     global all_labels_root
-    if not all_labels_root == root:
+    if all_labels_root != root:
         all_labels_root = root
         labels = SrcLabelTool.label_search(None, root)
         for l in labels:

@@ -78,12 +78,12 @@ class PreprocessorDirective():
             flags = match.group(3).strip().split()
         except IndexError:
             flags = []
-        if len(flags) > 0:
+        if flags:
             self.flags = [int(f) for f in flags]
 
     def __init__(self, line, ilineno=-1):
         if not PreprocessorDirective.is_preprocessor_directive(line):
-            raise Exception("'%s' is not a preprossor directive" % line)
+            raise Exception(f"'{line}' is not a preprossor directive")
         self._process_line(line)
         self.s = line.rstrip()
         self.pp_lineno = ilineno
@@ -109,15 +109,12 @@ class PreprocessedFileProcessor():
         return [d for d in self.directives if label.filename == d.path]
 
     def _get_preprocessing_directives(self):
-        ppf = open(self.path, "r")
-        lineno = 0
-        for l in ppf.readlines():
-            lineno += 1
-            if PreprocessorDirective.is_preprocessor_directive(l):
-                d = PreprocessorDirective(l, lineno)
-                self.directives.append(d)
-                self.included_files.add(d.path)
-        ppf.close()
+        with open(self.path, "r") as ppf:
+            for lineno, l in enumerate(ppf, start=1):
+                if PreprocessorDirective.is_preprocessor_directive(l):
+                    d = PreprocessorDirective(l, lineno)
+                    self.directives.append(d)
+                    self.included_files.add(d.path)
 
     def get_closest_directive(self, cfilename, clineno):
         closest_directive = None
@@ -153,19 +150,19 @@ class PreprocessedFileProcessor():
                 if (level == 0) and (last_index > 0):
                     return last_index
             last_index += 1
-        raise Exception("no matching paren %s" % orig)
+        raise Exception(f"no matching paren {orig}")
 
     def typeof_patch(self, line, i=0):
         if "(typeof" in line or ("( typeof" in line):
             a = re.match("\s*char\s+__([a-zA-Z0-9_-]+)\[([\w\s()>+*~/&-]+)\];", line)
             if a:
-                name = a.group(1)
-                l = "char __%s[%s];" % (name, a.group(2))
+                name = a[1]
+                l = f"char __{name}[{a[2]}];"
                 n = "; ([\s\w]+)\s+\*%s" % name
                 a = re.search(n, line)
-                if a:
-                    l = "%s %s *%s = __%s;\n" % (l, a.group(1), name, name)
-                    return l
+            if a:
+                l = "%s %s *%s = __%s;\n" % (l, a[1], name, name)
+                return l
         return line
 
     def global_patch(self, line):
@@ -192,8 +189,7 @@ class PreprocessedFileProcessor():
         outf.close()
 
     def void_int_patch(self, line, label):
-        out = re.sub("void", "int", line, count=1)
-        return out
+        return re.sub("void", "int", line, count=1)
 
     def i2cadapstart_patch(self, line, label):
         return ' extern struct i2c_adapter _u_boot_list_2_i2c_2_omap24_0; struct i2c_adapter *i2c_adap_p = &_u_boot_list_2_i2c_2_omap24_0; index=0; return i2c_adap_p;\n'
@@ -202,9 +198,7 @@ class PreprocessedFileProcessor():
         line = line.strip()
         # if max is declared as an int, keep the declaration
         i = line.find("int")
-        dec = ""
-        if (i > -1) and (i < line.find("max")):
-            dec = "int"
+        dec = "int" if (i > -1) and (i < line.find("max")) else ""
         return ' %s max = 2;\n' % dec
 
     def i2cinitbus_patch(self, line, label):
@@ -220,10 +214,7 @@ class PreprocessedFileProcessor():
         pat = "[-a-zA-Z0-9_\s()]+"
         args = re.compile("\s*do { size_t mzsz = \((%s)\);" % (pat))
         res = args.match(line)
-        if not res:
-            return line
-        new = "memset(mem, 0, %s);\n" % (res.group(1))
-        return new
+        return line if not res else "memset(mem, 0, %s);\n" % res[1]
 
     def cpuid_patch(self, line, label):
         return "\tcpuid = 0x3;\n"
@@ -237,8 +228,7 @@ class PreprocessedFileProcessor():
             last = line.index(";")
 
         value = pure_utils.get_symbol_location(self.elf, label.name, self.stage)
-        l = "%s = 0x%x;\n" % (line[:last], value)
-        return l
+        return "%s = 0x%x;\n" % (line[:last], value)
 
     def gd_patch(self, line):
         # addr of gd should be the top of .data section, so lookup where this section is
@@ -400,30 +390,30 @@ class FramaCDstPluginManager():
         self.patchdest = patchdest
         if len(patch_symlink) == 0:
             patch_symlink = tempfile.mkdtemp()
-            os.system("rm -r %s" % patch_symlink)
+            os.system(f"rm -r {patch_symlink}")
             if self.execute:
-                atexit.register(lambda: os.system("rm %s" % patch_symlink))
+                atexit.register(lambda: os.system(f"rm {patch_symlink}"))
         self.shortdest = patch_symlink
         self.backupdir = backupdir
         self.tee = tee
         self.path = os.path.dirname(os.path.realpath(__file__))
-        verbosen = 3 if verbose else 3
+        verbosen = 3
 #                            "-slevel-function printf:0  "\
 #                            "-slevel-function puts:0 "\
 #                            "-val-use-spec do_fat_read_at "\
 
         self.frama_c_args = " -load-script %s -machdep arm " \
-                            "-load-script %s " \
-                            "-load-script %s " \
-                            "-no-initialized-padding-locals " \
-                            "-absolute-valid-range 0x10000000-0xffffffff "\
-                            "-val-builtin malloc:Frama_C_malloc_fresh,free:Frama_C_free "\
-                            "-val-initialization-padding-globals=no  "\
-                            "-constfold "\
-                            "-kernel-verbose %d -value-verbose %d  "\
-                            "-big-ints-hex 0  "\
-                            "-slevel 1 "\
-                            "-val -then -dst -then -call" % (os.path.join(self.path,
+                                "-load-script %s " \
+                                "-load-script %s " \
+                                "-no-initialized-padding-locals " \
+                                "-absolute-valid-range 0x10000000-0xffffffff "\
+                                "-val-builtin malloc:Frama_C_malloc_fresh,free:Frama_C_free "\
+                                "-val-initialization-padding-globals=no  "\
+                                "-constfold "\
+                                "-kernel-verbose %d -value-verbose %d  "\
+                                "-big-ints-hex 0  "\
+                                "-slevel 1 "\
+                                "-val -then -dst -then -call" % (os.path.join(self.path,
                                                                           "machdep_arm.ml"),
                                                              os.path.join(self.path,
                                                                           "dest_analysis.ml"),
@@ -432,10 +422,10 @@ class FramaCDstPluginManager():
                                                              verbosen, verbosen)
         if not self.quick:
             self.frama_c_args = "%s -slevel-function memset:1048576 " \
-                                "-slevel-function malloc:2000  "\
-                                "-slevel-function calloc:2000 " % self.frama_c_args
+                                    "-slevel-function malloc:2000  "\
+                                    "-slevel-function calloc:2000 " % self.frama_c_args
         if calltracefile:
-            self.frama_c_args += " -call-output %s " % calltracefile
+            self.frama_c_args += f" -call-output {calltracefile} "
         self.frama_c_main_arg = " -main"
         self.more = more
         if more:
@@ -451,9 +441,8 @@ class FramaCDstPluginManager():
         self.preprocessed_files = []
 
     def import_results_from_file(self, path):
-        f = open(path, 'r')
-        self.process_framac_results(f.readlines())
-        f.close()
+        with open(path, 'r') as f:
+            self.process_framac_results(f.readlines())
 
     def process_framac_results(self, lines):
         for line in lines:
@@ -498,26 +487,22 @@ class FramaCDstPluginManager():
             print "\n"
 
     def _get_file_labels(self, f):
-        labels = []
-        for l in self.labels:
-            if l.filename == f:
-                labels.append(l)
-        return labels
+        return [l for l in self.labels if l.filename == f]
 
     def process_preprocessed_file(self, f):
         patch_labels = []
         included_files = f.processor.included_files
+        entryvalue = "ENTRYPOINT"
         for i in included_files:
             # get labels for this file
             labels = self._get_file_labels(i)
-            entryvalue = "ENTRYPOINT"
             for l in labels:
                 if l.value == entryvalue:
                     if l not in self.entrypoints:
                         self.entrypoints.append(l)
                 elif l.is_patch_value():
                     patch_labels.append(l)
-        outfile = "%s-%s.i" % (f.pp_path[:-2], "patched")
+        outfile = f"{f.pp_path[:-2]}-patched.i"
         f.patch(patch_labels, outfile)
         f.pp_path = outfile
         self.preprocessed_files.append(f)
@@ -550,7 +535,7 @@ class FramaCDstPluginManager():
         fnre = re.compile("\s+([a-zA-Z\-_0-9]+)\(")
         res = fnre.search(line)
         if res is not None:
-            return res.group(1)
+            return res[1]
         raise Exception("cannot determine entrypoint from label %s" % (l, line))
 
     def process_entrypoints(self):
@@ -573,7 +558,7 @@ class PreprocessedFileInstance():
 
     def _assert_exists(self, path):
         if not os.path.exists(path):
-            raise Exception("file %s does not exist" % path)
+            raise Exception(f"file {path} does not exist")
 
     def __init__(self, path, stage):
         self._assert_exists(path)
@@ -583,11 +568,10 @@ class PreprocessedFileInstance():
 
     @classmethod
     def c_file_lookup(cls, base_file):
-        f = open(base_file, "r")
-        l = f.readline()
-        # should be on first line
-        pd = PreprocessorDirective(l, 1)
-        f.close()
+        with open(base_file, "r") as f:
+            l = f.readline()
+            # should be on first line
+            pd = PreprocessorDirective(l, 1)
         return pd.path
 
     def patch(self, patch_labels, outname):
@@ -629,7 +613,7 @@ if __name__ == "__main__":
 
     s = Main.stage_from_name(args.stage)
     if s is None:
-        raise Exception("no such stage named %s" % args.stage)
+        raise Exception(f"no such stage named {args.stage}")
     if not args.standalone:
         d = doit_manager.TaskManager([], [], False, [args.stage],
                                      {args.stage: args.policy_id},
@@ -677,8 +661,7 @@ if __name__ == "__main__":
         fc.process_dsts(files)
         #for p in sorted(list(patches.keys())):
         #    print "%s: %s" % (p, patches[p])
-        if args.update or args.execute:
-            if args.update:
-                fc.update_db()
-            else:
-                fc.print_results()
+        if args.update:
+            fc.update_db()
+        elif args.execute:
+            fc.print_results()

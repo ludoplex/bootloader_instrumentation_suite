@@ -393,18 +393,17 @@ class RelocDescriptor():
                                            self.stage, self.name)
 
                 if l is not None:
-                    setattr(self, value+"addr", self.lookup_label_addr(l))
+                    setattr(self, f"{value}addr", self.lookup_label_addr(l))
                 else:
                     raise Exception("cannot find label value "
                                     "%s stage %s name %s" % (value,
                                                              self.stage.stagename,
                                                              self.name))
             else:
-                setattr(self, value+"addr", item)
+                setattr(self, f"{value}addr", item)
 
     def get_row_information(self):
-        # DST, CPYSTART, CPYEND, BEGIN, READY
-        info = {
+        return {
             'relocpc': self.readyaddr,
             'relocpclo': utils.addr_lo(self.readyaddr),
             'relocpchi': utils.addr_hi(self.readyaddr),
@@ -419,7 +418,6 @@ class RelocDescriptor():
             'symname': self.symname,
             'name': self.name,
         }
-        return info
 
 
 class SkipDescriptorGenerator():
@@ -431,7 +429,6 @@ class SkipDescriptorGenerator():
         self.stage = table.stage
 
     def get_row_information(self):
-        row = {}
         labels = WriteSearch.find_labels(labeltool.SkipLabel, "",
                                          self.stage, self.name)
         startaddr = -1
@@ -442,7 +439,7 @@ class SkipDescriptorGenerator():
         srcdir = Main.get_runtime_config("temp_target_src_dir")
         isfunc = False
         for l in labels:
-            if not l.name == self.name:
+            if l.name != self.name:
                 continue
             if l.value == "START":
                 lineno = self.table._get_real_lineno(l, False)
@@ -476,12 +473,9 @@ class SkipDescriptorGenerator():
                 disasm = r2.get(elf, "pd 2")
                 disasm = r2.get(elf, "pdj 2")
 
-                if disasm[0]["disasm"].startswith("push"):
-                    firstins = disasm[1]
-                else:
-                    firstins = disasm[0]
+                firstins = disasm[1] if disasm[0]["disasm"].startswith("push") else disasm[0]
                 startaddr = firstins["offset"]
-                #print "start %s,%x" % (startaddr, endaddr)
+                        #print "start %s,%x" % (startaddr, endaddr)
             elif l.value == "NEXT":
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
@@ -493,10 +487,7 @@ class SkipDescriptorGenerator():
             startaddr = self.table._get_line_addr(start, True)
             endaddr = self.table._get_line_addr(end, False)
             r2.get(elf, "s 0x%x" % startaddr)
-            thumb = False
-            if self.table.thumbranges.overlaps_point(startaddr):
-                thumb = True
-
+            thumb = bool(self.table.thumbranges.overlaps_point(startaddr))
             if thumb:
                 r2.gets(self.stage.elf, "ahb 16")
                 r2.get(self.stage.elf, "e asm.bits=16" )
@@ -506,21 +497,18 @@ class SkipDescriptorGenerator():
             disasm = r2.get(elf, "pd 2")
             disasm = r2.get(elf, "pdj 2")
             if "disasm" in disasm[0]:
-                if (disasm[0][u"disasm"].startswith("push")):
-                    # don't include push instruction
-                    startins = disasm[1]
-                else:
-                    startins = disasm[0]
+                startins = (
+                    disasm[1]
+                    if (disasm[0][u"disasm"].startswith("push"))
+                    else disasm[0]
+                )
                 startaddr = startins["offset"]
 
         s = long(startaddr + self.adjuststart)
         e = long(endaddr + self.adjustend)
         if e < s:
-            t = s
-            s = e
-            e = t
-        row['pc'] = s
-        row['pclo'] = utils.addr_lo(s)
+            s, e = e, s
+        row = {'pc': s, 'pclo': utils.addr_lo(s)}
         row['pchi'] = utils.addr_hi(s)
         row['resumepc'] = e
         row['resumepclo'] = utils.addr_lo(e)
@@ -540,29 +528,28 @@ class ThumbRanges():
         data = intervaltree.IntervalTree()
         if noop:
             return (thumb, arm, data)
-        cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (cc, elf)
+        cmd = f"{cc}nm -S -n --special-syms {elf} 2>/dev/null"
         output = subprocess.check_output(cmd, shell=True).split('\n')
         prev = None
         lo = 0
         dta = re.compile('\s+[a-zA-Z]\s+\$[tad]$')
         for o in output:
             o = o.strip()
-            if dta.search(o):
-                hi = long(o[:8], 16)
-                if (prev is not None) and (not lo == hi):
-                    i = intervaltree.Interval(lo, hi)
-                    if prev == 't':
-                        thumb.add(i)
-                    elif prev == 'a':
-                        arm.add(i)
-                    elif prev == 'd':
-                        data.add(i)
-                    else:
-                        raise Exception
-                lo = hi
-                prev = o[-1]
-            else:
+            if not dta.search(o):
                 continue
+            hi = long(o[:8], 16)
+            if prev is not None and lo != hi:
+                i = intervaltree.Interval(lo, hi)
+                if prev == 'a':
+                    arm.add(i)
+                elif prev == 'd':
+                    data.add(i)
+                elif prev == 't':
+                    thumb.add(i)
+                else:
+                    raise Exception
+            lo = hi
+            prev = o[-1]
         res = (thumb, arm, data)
         for r in res:
             r.merge_overlaps()
@@ -590,17 +577,17 @@ class WriteSearch():
 
         if createdb:
             m = "w"
-            self.h5file = tables.open_file(outfile, mode=m,
-                                           title="%s target static analysis"
-                                           % stage.stagename)
-            self.group = self.h5file.create_group("/", 'staticanalysis',
-                                                  "%s target static analysis"
-                                                  % stage.stagename)
+            self.h5file = tables.open_file(
+                outfile, mode=m, title=f"{stage.stagename} target static analysis"
+            )
+            self.group = self.h5file.create_group(
+                "/", 'staticanalysis', f"{stage.stagename} target static analysis"
+            )
         else:
             mo = "a"
-            self.h5file = tables.open_file(outfile, mode=mo,
-                                           title="%s target static analysis"
-                                           % stage.stagename)
+            self.h5file = tables.open_file(
+                outfile, mode=mo, title=f"{stage.stagename} target static analysis"
+            )
             self.group = self.h5file.get_node("/staticanalysis")
         r2.cd(self.stage.elf, Main.get_runtime_config("temp_target_src_dir"))
         def q():
@@ -608,6 +595,7 @@ class WriteSearch():
                 r2.files[self.stage.elf].quit()
             except IOError:
                 pass
+
         atexit.register(q)
 
     @classmethod
@@ -749,10 +737,7 @@ class WriteSearch():
             addr = utils.get_line_addr("%s:%d" % (l.filename, lineno), True, stage,
                                        srcdir=Main.get_runtime_config("temp_target_src_dir"))
 
-        if addr < 0:
-            return -1
-        else:
-            return lineno
+        return -1 if addr < 0 else lineno
 
     def _get_real_lineno(self, l, prev=False):
         return WriteSearch.get_real_lineno(l, prev, self.stage)
@@ -810,24 +795,25 @@ class WriteSearch():
     @classmethod
     def find_label(cls, lclass, value, stage, name):
         res = cls.find_labels(lclass, value, stage, name)
-        if not (len(res) == 1):
-            raise Exception("Found 0 or +1 labels of class=%s, value=%s, stage=%s, name=%s"
-                            % (cls.__name__, value, stage.stagename, name))
+        if len(res) != 1:
+            raise Exception(
+                f"Found 0 or +1 labels of class={cls.__name__}, value={value}, stage={stage.stagename}, name={name}"
+            )
         return res[0]
 
     @classmethod
     def find_labels(cls, lclass, value, stage, name):
         all_labels = cls._get_src_labels()
-        results = []
         if lclass not in all_labels.iterkeys():
             return []
         labels = all_labels[lclass]
-        for l in labels:
-            if ((stage is None) or (l.stagename == stage.stagename)) \
-               and ((len(name) == 0) or (l.name == name)) \
-               and ((len(value) == 0) or (l.value == value)):
-                results.append(l)
-        return results
+        return [
+            l
+            for l in labels
+            if ((stage is None) or (l.stagename == stage.stagename))
+            and ((len(name) == 0) or (l.name == name))
+            and ((len(value) == 0) or (l.value == value))
+        ]
 
     @classmethod
     def get_relocation_information(cls, stage):
@@ -961,8 +947,8 @@ class WriteSearch():
         )
 
     @classmethod
-    def _is_arm(self, elf):
-        o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc, elf))
+    def _is_arm(cls, elf):
+        o = Main.shell.run_cmd(f"{Main.cc}readelf -h {elf}| grep Machine")
         o = o.split()
         return o[1] == "ARM"
 
@@ -1176,7 +1162,7 @@ class WriteSearch():
         # (example: u-boot, get_tbclk)
         self.funcstable = self.h5file.create_table(self.group, 'funcs',
                                                     FuncEntry, "function info")
-        cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (Main.cc, self.stage.elf)
+        cmd = f"{Main.cc}nm -S -n --special-syms {self.stage.elf} 2>/dev/null"
         output = subprocess.check_output(cmd, shell=True).split('\n')
         r = self.funcstable.row
         for o in output:

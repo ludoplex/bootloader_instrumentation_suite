@@ -17,7 +17,7 @@ import sys
 # this too is a hack, but I am unable to get setuputils to instal a requirement from a subdirectory of the capstone git repository
 class PkgBuild(build_py):
     def run(self):
-        if not (os.system('pip show capstone') == 0):
+        if os.system('pip show capstone') != 0:
             os.system('pip install git+https://github.com/aquynh/capstone@next#subdirectory=bindings/python')
         build_py.run(self)
 

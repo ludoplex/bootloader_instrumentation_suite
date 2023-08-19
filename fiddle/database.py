@@ -101,7 +101,7 @@ class WriteDstTable():
         self.open()
 
     def name(self, num):
-        return "%s_%s" % (self._name, num)
+        return f"{self._name}_{num}"
 
     def open(self, force=False):
         nums = substage.SubstagesInfo.substage_numbers(self.stage)
@@ -153,14 +153,13 @@ class WriteDstTable():
         self._mux_end -= 2
         if self.thumbranges.overlaps_point(self._mux_start):
             self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_THUMB)
-            self.cs.detail = True
             self._thumb = True
             self.emu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
         else:
             self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_ARM)
-            self.cs.detail = True
             self._thumb = False
             self.emu = Uc(UC_ARCH_ARM, UC_MODE_ARM)
+        self.cs.detail = True
         entrypoint = self._mux_start
         headers = pure_utils.get_section_headers(elf)
         for h in headers:
@@ -174,10 +173,7 @@ class WriteDstTable():
         code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
         hw = Main.get_hardwareclass_config()
         for i in hw.addr_range:
-            if i.begin == 0:
-                size = i.end
-            else:
-                size = i.begin - i.end
+            size = i.end if i.begin == 0 else i.begin - i.end
             self.emu.mem_map(i.begin, size, UC_PROT_ALL)
 
         self.emu.mem_write(self._mux_start, code)
@@ -186,9 +182,8 @@ class WriteDstTable():
     def uboot_mux(self, dstinfo):
         # hack
         path = dstinfo.path
-        cmd = 'grep -n "MUX_BEAGLE();" %s' % path
-        lineno = Main.shell.run_cmd(cmd, catcherror=True)
-        if lineno:
+        cmd = f'grep -n "MUX_BEAGLE();" {path}'
+        if lineno := Main.shell.run_cmd(cmd, catcherror=True):
             # so sorry, this is a hack to deal with the annoying amount of writes
             # squished into a u-boot macro
             lineno = int(lineno.split(":")[0])
@@ -245,7 +240,7 @@ class WriteDstTable():
                     (r['line'], r['writepc'], r['dstlo'], r['dsthi'], r['substage'])
 
     def nrows(self):
-        return sum([t.nrows for t in self.tables.itervalues()])
+        return sum(t.nrows for t in self.tables.itervalues())
 
 
 class WriteDstResult():
@@ -262,30 +257,29 @@ class WriteDstResult():
         res = cls.regexp.match(line.strip())
         if res is None:
             raise Exception("%s is not a framac dst result")
-        else:
-            min_value = long(res.group(1), 0)
-            max_value = long(res.group(2), 0)
-            #if max_value > 0xFFFFFFFF:
-            #    max_value = 0xFFFFFFFF
-            lvalue = res.group(3)
-            path = res.group(4)
-            # somewhat of a hack to get relative path
-            root = Main.get_target_cfg().software_cfg.root
-            if path.startswith(root):
-                path = os.path.relpath(path, root)
-                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
-            elif path.startswith(Main.test_suite_path):  # not sure why this happens
-                path = os.path.relpath(path, Main.test_suite_path)
-                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
-            elif path.startswith("/tmp/tmp"):
-                path = "/".join(path.split("/")[3:])
-                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
-            lineno = int(res.group(5))
-            callstack = res.group(6)
-            # somewhat of a hack for muxconf
-            return cls(path, lineno, lvalue,
-                       [intervaltree.Interval(min_value, max_value)],
-                       callstack=callstack, stage=stage)
+        min_value = long(res.group(1), 0)
+        max_value = long(res.group(2), 0)
+        #if max_value > 0xFFFFFFFF:
+        #    max_value = 0xFFFFFFFF
+        lvalue = res.group(3)
+        path = res.group(4)
+        # somewhat of a hack to get relative path
+        root = Main.get_target_cfg().software_cfg.root
+        if path.startswith(root):
+            path = os.path.relpath(path, root)
+            path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
+        elif path.startswith(Main.test_suite_path):  # not sure why this happens
+            path = os.path.relpath(path, Main.test_suite_path)
+            path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
+        elif path.startswith("/tmp/tmp"):
+            path = "/".join(path.split("/")[3:])
+            path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
+        lineno = int(res.group(5))
+        callstack = res.group(6)
+        # somewhat of a hack for muxconf
+        return cls(path, lineno, lvalue,
+                   [intervaltree.Interval(min_value, max_value)],
+                   callstack=callstack, stage=stage)
 
     def add_value(self, v):
         self.values.add(v)
@@ -329,12 +323,11 @@ class WriteDstResult():
     def key(self):
         # use relative path from target root
         root = Main.raw.runtime.temp_target_src_dir
-        p = re.sub(root+'/', '', self.path)
-        r = "%s:%d" % (p, self.lineno)
-        return r
+        p = re.sub(f'{root}/', '', self.path)
+        return "%s:%d" % (p, self.lineno)
 
     def __str__(self):
-        return "%s %s" % (self.key(), self.values)
+        return f"{self.key()} {self.values}"
 
 
 class TraceWriteEntry(tables.IsDescription):
@@ -448,8 +441,8 @@ class TraceTable():
     @property
     def pcmax(self):
         if self._pcmax is None:
-            rmax = max([r['startaddr']+r['size']+r['reloffset'] for r in self.rinfos])
-            self._pcmax = self._stage_pcmax if self._stage_pcmax > rmax else rmax
+            rmax = max(r['startaddr']+r['size']+r['reloffset'] for r in self.rinfos)
+            self._pcmax = max(self._stage_pcmax, rmax)
         return self._pcmax
 
     def _setthumbranges(self):
@@ -506,7 +499,7 @@ class TraceTable():
             self.h5file.close()
 
     def get_group(self):
-        return self.h5file.get_node("/"+self.stagename)
+        return self.h5file.get_node(f"/{self.stagename}")
 
     def instr2mne(self, dis):
         return dis.split()[0]
@@ -538,8 +531,7 @@ class TraceTable():
             rangetable.cols.index.create_index(kind='full')
             rangetable.cols.index.reindex()
             rs = rangetable.read_sorted('index')
-        i = 0
-        for rangerow in rs:
+        for i, rangerow in enumerate(rs):
             # print "%x" % rangerow['pc']
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
@@ -548,7 +540,7 @@ class TraceTable():
             lrfname = db_info.get(self.stage).addr2functionname(rangerow['lr'])
 
             r = "pc=%x/[%x] (%s) lr=%x (%s) [%x-%x] (%d) %d times -- %s -- %s\n" % \
-                (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
+                    (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
                  lrfname, rangerow['destlo'], rangerow['desthi'], rangerow['byteswritten'],
                  rangerow['numops'], sdisasm, ssrc)
             n = rangerow['byteswritten']
@@ -567,7 +559,6 @@ class TraceTable():
                     csvfile.write(r2)
             else:
                 ret = ret + r
-            i += 1
         if outfile:
             outfile.close()
         if csvfile:
@@ -856,7 +847,7 @@ class TraceTable():
             start = (rinfo['startaddr']+offset)
             end = start + rinfo['size'] + offset
             # if pc is in a relocated dest range  (for now we assume no overlap)
-            if (start <= pc) and (pc <= end):
+            if start <= pc <= end:
                 r['pc'] = pc - offset
                 r['pclo'] = utils.addr_lo(long(r['pc']))
                 r['pchi'] = utils.addr_hi(long(r['pc']))

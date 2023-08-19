@@ -40,14 +40,10 @@ _mmapdb = None
 
 def get(*args, **kwargs):
     global _singletons
-    if len(args) > 0:
-        key = args[0]
-    else:
-        key = "any"
+    key = args[0] if args else "any"
     if key not in _singletons.iterkeys():
         _singletons[key] = DBInfo(*args, **kwargs)
-    obj = _singletons[key]
-    return obj
+    return _singletons[key]
 
 
 def policydb(*args, **kwargs):
@@ -57,14 +53,11 @@ def policydb(*args, **kwargs):
 def create(*args, **kwargs):
     key = args[0]
     typ = args[1]
-    if len(args) > 2:
-        args = args[2:]
-    else:
-        args = ()
+    args = args[2:] if len(args) > 2 else ()
     if typ == "mmapdb":
         key = "all"
     elif key == "all":
-        raise Exception("need to specify a stage to open db %s" % typ)
+        raise Exception(f"need to specify a stage to open db {typ}")
     obj = get(key, args, kwargs)
     if typ == "staticdb":
         obj._sdb.create()
@@ -94,9 +87,9 @@ class DBObj():
 
     def create(self, **kwargs):
         if self._db:
-            raise Exception("Databse already open %s, %s, %s" % (self._db,
-                                                                 self.stage,
-                                                                 self.__dict__))
+            raise Exception(
+                f"Databse already open {self._db}, {self.stage}, {self.__dict__}"
+            )
         self._create(**kwargs)
         self._reopen(**kwargs)
 
@@ -156,7 +149,7 @@ class StaticDB(DBObj):
         self._db = staticanalysis.WriteSearch(False, self.stage, False, not append)
         self._db.open_all_tables()
         if self._db.writestable:
-            logging.debug("opening staticdb nwrite %s" % (self._db.writestable.nrows))
+            logging.debug(f"opening staticdb nwrite {self._db.writestable.nrows}")
 
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
@@ -164,7 +157,7 @@ class StaticDB(DBObj):
 
     def _close(self):
         if self._db.writestable:
-            logging.debug("closing staticdb nwrite %s" % (self._db.writestable.nrows))
+            logging.debug(f"closing staticdb nwrite {self._db.writestable.nrows}")
         self._db.closedb(False)
 
     def flush(self):
@@ -176,14 +169,18 @@ class TraceDB(DBObj):
     def _open(self, append=False):
         dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, False, True)
-        logging.debug("open tracedb nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename))
+        logging.debug(
+            f"open tracedb nwrite {self._db.writestable.nrows} ({self.stage.stagename})"
+        )
 
     def _create(self):
         dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
-        logging.debug("close tracedb nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename))
+        logging.debug(
+            f"close tracedb nwrite {self._db.writestable.nrows} ({self.stage.stagename})"
+        )
         self._db.close()
 
     def flush(self):
@@ -215,10 +212,12 @@ class DBInfo():
                 db.close()
 
     def name_in_relocs_table(self, name):
-        return pytable_utils.has_results(self._sdb.db.relocstable, 'name == "%s"' % name)
+        return pytable_utils.has_results(self._sdb.db.relocstable, f'name == "{name}"')
 
     def reloc_offset_and_mod_from_cardinal(self, cardinal):
-        r = pytable_utils.get_unique_result(self._sdb.db.relocstable, 'cardinal == %s' % cardinal)
+        r = pytable_utils.get_unique_result(
+            self._sdb.db.relocstable, f'cardinal == {cardinal}'
+        )
         return (r['reloffset'], r['relmod'])
 
     def reloc_info_by_cardinal(self, names):
@@ -227,8 +226,9 @@ class DBInfo():
             yield (r['name'], r['relbegin'], r['size'], r['reloffset'])
 
     def mmap_var_loc(self, name):
-        res = pytable_utils.get_unique_result(self._pdb.db.var_table,
-                                              'name == "%s"' % name)
+        res = pytable_utils.get_unique_result(
+            self._pdb.db.var_table, f'name == "{name}"'
+        )
         return (res['startaddr'], res['endaddr'])
 
     def symbol_names_with(self, substr):
@@ -237,8 +237,13 @@ class DBInfo():
                                     "contains(name, \"%s\")" % substr)]
 
     def reloc_names_in_substage(self, substagenum):
-        return [r['name'] for r in pytable_utils.query(self._pdb.db.substage_reloc_info_table,
-                                                       'substagenum == %s' % substagenum)]
+        return [
+            r['name']
+            for r in pytable_utils.query(
+                self._pdb.db.substage_reloc_info_table,
+                f'substagenum == {substagenum}',
+            )
+        ]
 
     def reloc_info(self):
         fields = self._sdb.db.relocstable.colnames
@@ -273,8 +278,10 @@ class DBInfo():
         return calculator(row, regs, sregs, eregs, string)
 
     def is_longwrite_string(self, rangetype):
-        return (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestrn)) \
-            or (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestr))
+        return rangetype in [
+            staticanalysis.LongWriteRangeType.enum().sourcestrn,
+            staticanalysis.LongWriteRangeType.enum().sourcestr,
+        ]
 
     def pc_writes_info(self, pc):
         fields = ['pc', 'pclo', 'pchi', 'thumb', 'reg0', 'reg1', 'reg2',
@@ -390,7 +397,7 @@ class DBInfo():
 
     def get_substage_writes(self, substage):
         fields = self._tdb.db.writestable.colnames
-        query = "substage == %s" % substage
+        query = f"substage == {substage}"
         for r in pytable_utils.query(self._tdb.db.writestable, query):
             yield {f: r[f] for f in fields}
 
@@ -462,14 +469,18 @@ class DBInfo():
     def addr2functionname(self, addr):
         # print "%x -> %x %x" % (addr, utils.addr_hi(addr), utils.addr_lo(addr))
         addr = long(addr)
-        rs = pytable_utils.get_rows(self._sdb.db.funcstable,
-                                    ("(startaddrlo <= 0x%x) & (startaddrhi <= 0x%x) & (0x%x < endaddrlo) & (0x%x <= endaddrhi)" %
-                                     (utils.addr_lo(addr),
-                                      utils.addr_hi(addr),
-                                      utils.addr_lo(addr),
-                                      utils.addr_hi(addr))))
-
-        if rs:
+        if rs := pytable_utils.get_rows(
+            self._sdb.db.funcstable,
+            (
+                "(startaddrlo <= 0x%x) & (startaddrhi <= 0x%x) & (0x%x < endaddrlo) & (0x%x <= endaddrhi)"
+                % (
+                    utils.addr_lo(addr),
+                    utils.addr_hi(addr),
+                    utils.addr_lo(addr),
+                    utils.addr_hi(addr),
+                )
+            ),
+        ):
             return rs[0]['fname']
         else:
             return ''
@@ -505,30 +516,29 @@ class DBInfo():
         if "framac" in hwname:
             return [(r['destlo'], r['desthi']) for r in
                     pytable_utils.get_rows('(%d <= writepclo) & (%d <= writepchi) & (writepclo < %d) & (writepchi <= %d)' % \
-                                           (utils.addr_lo(pclo),
+                                               (utils.addr_lo(pclo),
                                             utils.addr_hi(pclo),
                                             utils.addr_lo(pchi),
                                             utils.addr_hi(pchi)))]
-        else:
-            fns = substage_entries
-            substages = substage_names
-            num = 0
-            intervals = {n: intervaltree.IntervalTree() for n in substages}
+        fns = substage_entries
+        substages = substage_names
+        num = 0
+        intervals = {n: intervaltree.IntervalTree() for n in substages}
 
-            for r in wt.read_sorted('index'):
-                pc = long(r['pc'])
-                if num < len(fns) - 1:
-                    # check if we found the entrypoint to the next stage
-                    (lopc, hipc) = substage_entries[num + 1]
-                    if (lopc <= pc) and (pc < hipc):
-                        num += 1
-                if num in substages:
-                    start = long(r['dest'])
-                    end = start + pytable_utils.get_rows(wt, '(pclo == %d) & (pchi == %d)' %
-                                                         utils.addr_lo(long(r['pc'])),
-                                                         utils.addr_hi(long(r['pc']))[0]['writesize'])
-                    intervals[num].add(intervaltree.Interval(start, end))
-            return intervals
+        for r in wt.read_sorted('index'):
+            pc = long(r['pc'])
+            if num < len(fns) - 1:
+                # check if we found the entrypoint to the next stage
+                (lopc, hipc) = substage_entries[num + 1]
+                if lopc <= pc < hipc:
+                    num += 1
+            if num in substages:
+                start = long(r['dest'])
+                end = start + pytable_utils.get_rows(wt, '(pclo == %d) & (pchi == %d)' %
+                                                     utils.addr_lo(long(r['pc'])),
+                                                     utils.addr_hi(long(r['pc']))[0]['writesize'])
+                intervals[num].add(intervaltree.Interval(start, end))
+        return intervals
 
     def write_trace_intervals(self, interval, table):
         r = table.row

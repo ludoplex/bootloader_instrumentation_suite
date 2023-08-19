@@ -169,10 +169,10 @@ class SubstagesInfo():
         return "vars"
 
     def groupname(self):
-        return "%s_%s" % (self.interval_type, self.stage.stagename)
+        return f"{self.interval_type}_{self.stage.stagename}"
 
     def mmapgroupname(self):
-        return "%s_mmap" % self.stage.stagename
+        return f"{self.stage.stagename}_mmap"
 
     def create_dbs(self,  trace):
         self.process_trace = trace
@@ -206,7 +206,7 @@ class SubstagesInfo():
         stage = self.stage
         sname = stage.stagename
         elf = stage.elf
-        cmd = "%snm -n -S %s" % (cc, elf)
+        cmd = f"{cc}nm -n -S {elf}"
         f = StringIO.StringIO(Main.shell.run_cmd(cmd))
         reader = csv.DictReader(f, fields, delimiter=" ",
                                 lineterminator="\n", skipinitialspace=True)
@@ -222,7 +222,7 @@ class SubstagesInfo():
                 row['endaddrhi'] = utils.addr_hi(long(row['endaddr']))
                 row['rawkind'] = r['kind'].strip()
                 k = row['rawkind'].lower()
-                if ('t' == k) or ('w' == k):
+                if k in ['t', 'w']:
                     row['kind'] = getattr(addr_space.var_type, 'text')
                 else:
                     row['kind'] = getattr(addr_space.var_type, 'staticvar')
@@ -245,11 +245,10 @@ class SubstagesInfo():
     def get_intervals_for_substage(self, substage, intervals):
         stage_intervals = intervals[substage]
         other_intervals = intervaltree.IntervalTree()
-        other_intervals = interaltree.IntervalTree([inter for inter in [i for (k, i) in
-                                                                        intervals.iteritems()
-                                                                        if not k == substage]])
-        unique = stage_intervals - other_intervals
-        return unique
+        other_intervals = interaltree.IntervalTree(
+            [i for k, i in intervals.iteritems() if k != substage]
+        )
+        return stage_intervals - other_intervals
 
     def divide_intervals(self, stages, table):
         divided_intervals = {i: intervaltree.IntervalTree() for i in stages}
@@ -269,8 +268,7 @@ class SubstagesInfo():
         table = self.trace_intervals_table
         stages = self._substage_numbers()
         results = {i: [] for i in stages}
-        divided_intervals = self.divide_intervals(stages, table)
-        return divided_intervals  # results
+        return self.divide_intervals(stages, table)
 
     def print_all_intervals(self):
         self.print_intervals()
@@ -335,29 +333,24 @@ class SubstagesInfo():
             for s in substages:
                 if s == "_start":
                     n = 0
-                else:
-                    if not failed:
-                        try:
-                            n = self.get_function_lineno(s, calltrace_path)
-                        except subprocess.CalledProcessError:
-                            logging.info("Did not find %s in %s" % (s, calltrace_path))
-                            failed = True
-                            n = self.get_function_lineno(s, calltrace_path, True)
+                elif not failed:
+                    try:
+                        n = self.get_function_lineno(s, calltrace_path)
+                    except subprocess.CalledProcessError:
+                        logging.info(f"Did not find {s} in {calltrace_path}")
+                        failed = True
+                        n = self.get_function_lineno(s, calltrace_path, True)
                 substage_linenos.append(n)
-            outf = open(path, "w")
-            outf.write("(setq substages '(%s))\n" % " ".join([str(i) for i in substage_linenos]))
-            outf.close()
+            with open(path, "w") as outf:
+                outf.write("(setq substages '(%s))\n" % " ".join([str(i) for i in substage_linenos]))
 
     @classmethod
     def get_function_lineno(cls, fn, path, last=False):
         if last:
             out = run_cmd.Cmd().run_cmd("wc -l %s | awk '{print ($1);}'" % (path))
             return long(out)
-        out = run_cmd.Cmd().run_cmd("egrep -no ' > %s( |$)' %s" % (fn, path))
-        if len(out) == 0:
-            return None
-        else:
-            return long(out.split(":")[0])
+        out = run_cmd.Cmd().run_cmd(f"egrep -no ' > {fn}( |$)' {path}")
+        return None if len(out) == 0 else long(out.split(":")[0])
 
     def get_raw_files(self, noprepare):
         stage = self.stage
@@ -368,23 +361,23 @@ class SubstagesInfo():
         #calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)
         calltrace_path = getattr(Main.raw.TraceMethod.calltrace.Files.org, stage.stagename)
         if calltrace_path and os.path.exists(calltrace_path) and substageresultsdir:
-            pp = Main.raw.postprocess.consolidate_writes.files
             if not noprepare:
+                pp = Main.raw.postprocess.consolidate_writes.files
                 el_path = getattr(pp.el_file, stage.stagename)
                 if os.path.exists(substageresultsdir):
                     return {}
                 try:
-                    pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
-                                             (calltrace_path,
-                                              el_path,
-                                              substageresultsdir))
+                    pymacs_request.ask_emacs(
+                        f'(create-substage-calltraces "{calltrace_path}" "{el_path}" "{substageresultsdir}")'
+                    )
                 except Exception as e:
                     logging.debug("Emacs data gathering not setup (%s, %s)\n" % (e, e.args))
                     return {}
             origdir = os.getcwd()
             os.chdir(substageresultsdir)
-            files = [os.path.join(substageresultsdir, f) for f in glob.glob("*.txt")]
-            if files:
+            if files := [
+                os.path.join(substageresultsdir, f) for f in glob.glob("*.txt")
+            ]:
                 files.sort()
                 return {i: files[i] for i in range(0, len(files))}
         return {}
@@ -399,7 +392,7 @@ class SubstagesInfo():
         if self.contents_table and self.contents_table.nrows > 0:
             return
 
-        if 'framac' == tracename:
+        if tracename == 'framac':
             tracefile = getattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
@@ -413,13 +406,12 @@ class SubstagesInfo():
             raws = self.get_raw_files(False)
             row = self.contents_table.row
             for (num, f) in raws.iteritems():
-                fopen = open(f, "r")
-                contents = fopen.read()
-                for n in contents.split():
-                    row["substagenum"] = num
-                    row["functionname"] = n
-                    row.append()
-                fopen.close()
+                with open(f, "r") as fopen:
+                    contents = fopen.read()
+                    for n in contents.split():
+                        row["substagenum"] = num
+                        row["functionname"] = n
+                        row.append()
         self.contents_table.flush()
         self.contents_table.cols.substagenum.reindex()
 
@@ -454,8 +446,7 @@ class SubstagesInfo():
 
         intervals = {n: intervaltree.IntervalTree() for n in substages}
         for num in substages:
-            for r in pytable_utils.get_rows(self.trace_intervals_table,
-                                            'substagenum == %s' % num):
+            for r in pytable_utils.get_rows(self.trace_intervals_table, f'substagenum == {num}'):
                 # lookup writes performed by this function
                 f = r['functionname']
                 (lopc, hipc) = self.fun_info(f)
@@ -469,17 +460,18 @@ class SubstagesInfo():
     def calculate_intervals(self, substages):
         tracename = self.process_trace
         frama_c = "framac" in tracename
-        if frama_c:
-            intervals = self.calculate_framac_intervals(substages)
-
-        else:
-            intervals = self.calculate_trace_intervals(substages, tracename)
-        return intervals
+        return (
+            self.calculate_framac_intervals(substages)
+            if frama_c
+            else self.calculate_trace_intervals(substages, tracename)
+        )
 
     def populate_write_interval_table(self):
         substages = self._substage_numbers()
         if len(substages) < 1:
-            logging.debug("No substages defined, not populating write interval table for %s" % (self.stage))
+            logging.debug(
+                f"No substages defined, not populating write interval table for {self.stage}"
+            )
             return
         intervals = self.calculate_intervals(substages)
         db_info.get(self.stage).write_trace_intervals(intervals,
@@ -506,7 +498,7 @@ class SubstagesInfo():
                 continue
             name = i['short_name']
             longname = i['name']
-            longname = ' (%s)' % longname if longname else ''
+            longname = f' ({longname})' if longname else ''
             addrs = []
             numaddrs = 0
             for a in [r for r in addr.read_sorted('startaddrlo') if r['short_name'] == name]:
@@ -533,14 +525,13 @@ class SubstagesInfo():
         self.substage_info_table.flush_rows_to_index()
 
         for num in substages:
-            for s in pytable_utils.get_rows(self.substage_info_table,
-                                         'substagenum == %s' % num):
-                logging.info('Substage %s (%s)  (name=%s) stack=%s type=%s' % \
-                             (s['substagenum'], s['functionname'],
-                              s['name'], s['stack'], substage_types(s['substage_type'])))
+            for s in pytable_utils.get_rows(self.substage_info_table, f'substagenum == {num}'):
+                logging.info(
+                    f"Substage {s['substagenum']} ({s['functionname']})  (name={s['name']}) stack={s['stack']} type={substage_types(s['substage_type'])}"
+                )
         logging.info('----------policies----------')
         for num in substages:
-            logging.info('-----for substage %s (%s) ----' % (num, self._substage_names()[num]))
+            logging.info(f'-----for substage {num} ({self._substage_names()[num]}) ----')
 
             new = set()
             defined = set()
@@ -564,35 +555,36 @@ class SubstagesInfo():
                         undefined.add(name)
             used = new | defined | writable | reclassified
             unusedregions = allregions - used
-            logging.info('%s total regions: %s new, %s defined -> %s writable | %s not writable' % \
-                         (len(allregions), len(new), len(defined), len(writable), len(unusedregions)))
+            logging.info(
+                f'{len(allregions)} total regions: {len(new)} new, {len(defined)} defined -> {len(writable)} writable | {len(unusedregions)} not writable'
+            )
             rowinfo = {}
-            for s in pytable_utils.get_rows(self.substage_region_policy_table,
-                                            'substagenum == %s' % (num)):
+            for s in pytable_utils.get_rows(self.substage_region_policy_table, f'substagenum == {num}'):
                 name = s['short_name']
                 rowinfo[name] = (region_types(s['region_type']),
                                  perms(s['default_perms']))
-            ds = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in defined])
-            ns = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in new])
-            us = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in undefined])
-            ws = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in writable])
-            cs = ', '.join(['(%s, %s, %s)' % (r,
-                                              rowinfo[r][0], rowinfo[r][1]) for r in reclassified])
+            ds = ', '.join([f'({r}, {rowinfo[r][0]}, {rowinfo[r][1]})' for r in defined])
+            ns = ', '.join([f'({r}, {rowinfo[r][0]}, {rowinfo[r][1]})' for r in new])
+            us = ', '.join([f'({r}, {rowinfo[r][0]}, {rowinfo[r][1]})' for r in undefined])
+            ws = ', '.join([f'({r}, {rowinfo[r][0]}, {rowinfo[r][1]})' for r in writable])
+            cs = ', '.join(
+                [f'({r}, {rowinfo[r][0]}, {rowinfo[r][1]})' for r in reclassified]
+            )
             ds = ds if ds else "[]"
             ns = ns if ns else "[]"
             us = us if us else "[]"
             ws = ws if ws else "[]"
             cs = cs if ds else "[]"
             if ds:
-                logging.info('defined regions: %s' % ds)
+                logging.info(f'defined regions: {ds}')
             if ns:
-                logging.info('new regions: %s' % ns)
+                logging.info(f'new regions: {ns}')
             if us:
-                logging.info('undefined regions: %s' % us)
+                logging.info(f'undefined regions: {us}')
             if cs:
-                logging.info('reclassified regions: %s' % cs)
+                logging.info(f'reclassified regions: {cs}')
             if ws:
-                logging.info('writable regions: %s' % ws)
+                logging.info(f'writable regions: {ws}')
 
     def populate_policy_table(self, ss_info, mmap_info):
         regions = list(mmap_info.regions.iterkeys())
@@ -625,29 +617,28 @@ class SubstagesInfo():
                     match = re.match(pat, r)
                     if match is None:
                         continue
-                    else:
-                        rname = self.region_name_from_symbol(v)
-                        policy_row['default_perms'] = getattr(perms, 'rwx')
-                        policy_row['short_name'] = rname
-                        policy_row['symbol_elf_name'] = r
-                        policy_row['symbol_name'] = v
-                        policy_row['region_type'] = getattr(region_types, 'symbol')
-                        policy_row['substagenum'] = s.num
-                        policy_row['new'] = False
-                        policy_row['defined'] = False
-                        policy_row['undefined'] = False
-                        policy_row['writable'] = True
-                        policy_row['reclassified'] = False
-                        policy_row['allowed_symbol'] = True
-                        policy_row['do_print'] = True
-                        policy_row.append()
-                        #policy_row.update()
-                        #policy_row._flushModRows()
+                    rname = self.region_name_from_symbol(v)
+                    policy_row['default_perms'] = getattr(perms, 'rwx')
+                    policy_row['short_name'] = rname
+                    policy_row['symbol_elf_name'] = r
+                    policy_row['symbol_name'] = v
+                    policy_row['region_type'] = getattr(region_types, 'symbol')
+                    policy_row['substagenum'] = s.num
+                    policy_row['new'] = False
+                    policy_row['defined'] = False
+                    policy_row['undefined'] = False
+                    policy_row['writable'] = True
+                    policy_row['reclassified'] = False
+                    policy_row['allowed_symbol'] = True
+                    policy_row['do_print'] = True
+                    policy_row.append()
+                    #policy_row.update()
+                    #policy_row._flushModRows()
 
-                        found = True
-                        break
+                    found = True
+                    break
                 if not found:
-                    raise Exception("could not find symbol named %s" % v)
+                    raise Exception(f"could not find symbol named {v}")
         policy_table.flush()
         policy_table.cols.substagenum.reindex()
         policy_table.cols.short_name.reindex()
@@ -664,7 +655,7 @@ class SubstagesInfo():
         return m.hexdigest()
 
     def region_name_from_symbol(self, v):
-        return "_Symbols.%s" % (v)
+        return f"_Symbols.{v}"
 
     def populate_substage_reloc_info_table(self, ss_info):
         reloc_table = self.substage_reloc_info_table

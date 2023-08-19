@@ -42,10 +42,7 @@ class Mapping():
     def __init__(self, start, end, size=None, s=""):
         self.start = start
         self.end = end
-        if size is None:
-            self.size = self.end - self.start
-        else:
-            self.size = size
+        self.size = self.end - self.start if size is None else size
         self.s = s
 
 
@@ -107,18 +104,16 @@ class Emulator():
         if len(mappings) == 1: # then try to get gdb target's mappings
             th = gdb.selected_thread()
             (tpid, pid, id3) = th.ptid
-            if pid > 1:
-                maps = "/proc/%d/maps" % pid
-                mlist = []
-                with open(maps, "r") as mmap:
-                    for m in mmap:
-                        fields = m.split()
-                        (lo, hi) = fields[0].split("-")
-                        s = fields[-1]
-                        mlist.append(Mapping(long(lo, 16), long(hi, 16), s=s))
-                return mlist
-            else:
+            if pid <= 1:
                 raise Exception("Unicorn does not support this setup")
+            maps = "/proc/%d/maps" % pid
+            mlist = []
+            with open(maps, "r") as mmap:
+                for m in mmap:
+                    fields = m.split()
+                    (lo, hi) = fields[0].split("-")
+                    s = fields[-1]
+                    mlist.append(Mapping(long(lo, 16), long(hi, 16), s=s))
         else: # get mappings directly from gdb
             for m in mappings:
                 m = m.strip()
@@ -129,7 +124,8 @@ class Emulator():
                 end = long(m[1], 0)
                 size = long(m[2], 0)
                 mlist.append(Mapping(start, end, size, m[3]))
-            return mlist
+
+        return mlist
 
 
 class X86Emulator(Emulator):
@@ -210,10 +206,7 @@ class Aarch64Emulator(Emulator):
         return emu.reg_read(self.get_reg_id(self.syscall_reg)) in [93, 94]
 
     def get_reg_id(self, name):
-        if name == "cpsr":
-            return 3
-        else:
-            return self.val_info.get_reg_name_val(name)
+        return 3 if name == "cpsr" else self.val_info.get_reg_name_val(name)
 
 
 class ArmEmulator(Aarch64Emulator):
@@ -259,20 +252,13 @@ class Unicorn(gdb_tools.GDBPlugin):
         self._no_run = False
 
     def enforce(self, args):
-        if args.disabled is False:
-            self._enforce = False
-        else:
-            self._enforce = True
+        self._enforce = args.disabled is not False
 
     def no_run(self, args):
-        if args.disabled is False:
-            self._no_run = False
-        else:
-            self._no_run = True
+        self._no_run = args.disabled is not False
 
     def create_emulator(self):
-        o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc,
-                                                                  self.stage.elf))
+        o = Main.shell.run_cmd(f"{Main.cc}readelf -h {self.stage.elf}| grep Machine")
         machine = o.split(" ", 2)[-1].strip()
         ms = {
             "ARM": ArmEmulator(),
@@ -449,7 +435,7 @@ class Unicorn(gdb_tools.GDBPlugin):
     def f_init(self, args):
         if self._no_run:
             stage = self.controller.stage_order[0]
-            gdb.execute("break *%s" % stage.entrypoint, to_string=True)
+            gdb.execute(f"break *{stage.entrypoint}", to_string=True)
             gdb.execute("r")
             self.init()
 

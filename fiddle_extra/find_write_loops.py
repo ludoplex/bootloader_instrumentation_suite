@@ -154,8 +154,7 @@ class LongWriteInfoOld():
 #        return str(self)
 
 def longwrite_info(elf, addr, thumb):
-    l = LongWriteInfo(elf, start, end, thumb)
-    return l
+    return LongWriteInfo(elf, start, end, thumb)
 
 def analyze(elf):
     r2.get(elf, "aas")

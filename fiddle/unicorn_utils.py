@@ -11,7 +11,7 @@ class UnicornCPU(object):
 
     def get_reg_name_val(self, name):
         name = name.upper()
-        reg_name = 'UC_' + self.arch + '_REG_' + name
+        reg_name = f'UC_{self.arch}_REG_{name}'
         try:
             reg_name_val = globals()[reg_name]
         except KeyError:

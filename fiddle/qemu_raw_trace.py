@@ -36,9 +36,7 @@ def read_header(fobj, hfmt):
     '''Read a trace record header'''
     hlen = struct.calcsize(hfmt)
     hdr = fobj.read(hlen)
-    if len(hdr) != hlen:
-        return None
-    return struct.unpack(hfmt, hdr)
+    return None if len(hdr) != hlen else struct.unpack(hfmt, hdr)
 
 
 def get_record(edict, rechdr, fobj):

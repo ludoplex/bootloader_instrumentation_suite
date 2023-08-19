@@ -15,16 +15,14 @@ def gets(f, cmd):
         handle.cmd('e anal.bb.maxsize=10000')
         handle.cmd('aac*')
 
-    out = handle.cmd(cmd)
-    return out
+    return handle.cmd(cmd)
 
 
 def run_aab(f):    
     if f in bba:
         return
-    else:
-        gets(f, "aab") # run basic block analysis
-        bba.append(f)
+    gets(f, "aab") # run basic block analysis
+    bba.append(f)
     return
 
 def get(f, cmd):
@@ -40,4 +38,4 @@ def entrypoint(f):
 
 
 def cd(f, dst):
-    gets(f, "cd %s" % dst)
+    gets(f, f"cd {dst}")

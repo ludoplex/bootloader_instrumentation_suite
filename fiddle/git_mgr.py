@@ -53,12 +53,11 @@ class GitManager():
         return True
 
     def get_section_info(self):
-        info = {
+        return {
             "git-root": self.root,
             "git-head": self.get_head(),
-            "git-commit": self.get_commit()
+            "git-commit": self.get_commit(),
         }
-        return info
 
     def get_head(self):
         return self.repo.head.name

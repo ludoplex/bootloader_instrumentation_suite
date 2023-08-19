@@ -80,10 +80,7 @@ def addr2line(addr, stage, debug=False):
 
 def line2addrs(line, stage):
     srcdir = Main.raw.runtime.temp_target_src_dir
-    cmd = "%sgdb -ex 'dir %s' -ex 'file %s' -ex 'info line %s'  --batch --nh --nx  %s 2>/dev/null" % (Main.cc,
-                                                                                                     srcdir,
-                                                                                                     stage.elf,
-                                                                                                     line, stage.elf)
+    cmd = f"{Main.cc}gdb -ex 'dir {srcdir}' -ex 'file {stage.elf}' -ex 'info line {line}'  --batch --nh --nx  {stage.elf} 2>/dev/null"
     output = Main.shell.run_multiline_cmd(cmd)
     startat = output[0]
     assembly = False
@@ -91,8 +88,7 @@ def line2addrs(line, stage):
     restart = None
     reend = None
     if ("but contains no code." in startat) and (".S\" is at address" in startat):
-        if (".S\" is at address" in startat):  # is assembly
-            assembly = True
+        assembly = True
         isataddr = re.compile("is at address (0x[0-9a-fA-F]{0,8})")
 
     else:
@@ -100,11 +96,10 @@ def line2addrs(line, stage):
         reend = re.compile("and ends at (0x[0-9a-fA-F]{0,8})")
 
     if isataddr:
-        if assembly:
-            startaddr = long((isataddr.search(startat)).group(1), 0)
-            return (startaddr, startaddr+4)
-        else:
+        if not assembly:
             return (-1, -1)
+        startaddr = long((isataddr.search(startat)).group(1), 0)
+        return (startaddr, startaddr+4)
     else:
         startaddr = long((restart.search(startat)).group(1), 0)
         endaddr = long((reend.search(startat)).group(1), 0)
@@ -116,10 +111,9 @@ def line2src(line):
         [path, lineno] = line.split(':')
     except ValueError:
         return ""
-    cmd = "sed -n '%s,%sp' %s 2>/dev/null" % (lineno, lineno, path)
+    cmd = f"sed -n '{lineno},{lineno}p' {path} 2>/dev/null"
     try:
-        output = Main.shell.run_cmd(cmd)
-        return output
+        return Main.shell.run_cmd(cmd)
     except:
         return ''
 
@@ -136,11 +130,11 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     r2.get(stage.elf, "pd 1")
     i = r2.get(stage.elf, "pdj 1")[0]
 
-    if "disasm" in i or u"invalid" == i["type"] or u"invalid" == i["disasm"]:
-        r2.get(stage.elf, "s %s" % old)
+    if "disasm" in i or i["type"] == u"invalid" or i["disasm"] == u"invalid":
+        r2.get(stage.elf, f"s {old}")
         return (None, None, None)
     fn = db_info.get(stage).addr2functionname(addr)
-    r2.get(stage.elf, "s %s" % old)
+    r2.get(stage.elf, f"s {old}")
     return (i['bytes'], i['disasm'], fn)
 
 

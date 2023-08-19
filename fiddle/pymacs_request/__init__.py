@@ -43,7 +43,10 @@ class Emacs():
         atexit.register(self.cleanup)
         emacs = '/usr/bin/emacsclient'
         self.command = (emacs, "-s", "default")
-        self.command = self.command + ('--eval', '(pymacs-run-one-request "%s")' % self.comm_dir)
+        self.command = self.command + (
+            '--eval',
+            f'(pymacs-run-one-request "{self.comm_dir}")',
+        )
 
     def cleanup(self):
         if self.popen is not None:
@@ -65,15 +68,13 @@ class Emacs():
 
             self.popen.poll()
         assert (self.popen.returncode is None) or (self.popen.returncode == 0), self.popen.returncode
-        handle = open(self.reply_file)
-        buffer = handle.read()
-        handle.close()
+        with open(self.reply_file) as handle:
+            buffer = handle.read()
         return unicode(buffer)
 
     def send(self, text):
-        handle = open(self.req_file, 'w')
-        handle.write(text.encode('ascii', 'ignore'))
-        handle.close()
+        with open(self.req_file, 'w') as handle:
+            handle.write(text.encode('ascii', 'ignore'))
         if os.path.exists(self.reply_file):
             os.remove(self.reply_file)
         if self.popen is None:
@@ -85,7 +86,7 @@ class Emacs():
 def ask_emacs(text, printer="prin1", execbuffer=""):
     Emacs.services = Emacs()
     if printer is not None:
-        text = '(%s %s)' % (printer, text)
+        text = f'({printer} {text})'
     Emacs.services.send(text)
     repl = Emacs.services.receive()
     Emacs.services.cleanup()
@@ -94,12 +95,8 @@ def ask_emacs(text, printer="prin1", execbuffer=""):
 
 def get_emacs_var(name):
     res = ask_emacs(name)[1: -1]  # strip off quotation marks
-    if res == "nil":
-        return None
-    else:
-        return res
+    return None if res == "nil" else res
 
 
 def ask_emacs_in_buffer(cmd, bufname):
-    return ask_emacs('(with-current-buffer (get-buffer-create %s) %s)'
-                     % (bufname, cmd))
+    return ask_emacs(f'(with-current-buffer (get-buffer-create {bufname}) {cmd})')
