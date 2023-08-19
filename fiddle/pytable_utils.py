@@ -50,8 +50,9 @@ def get_sorted(table, col, field=None):
 def get_unique_result(table, query):
     res = get_rows(table, query)
     if len(res) > 1:
-        raise Exception("more than 1 result matching query %s in table %s" %
-                        (query, str(table)))
+        raise Exception(
+            f"more than 1 result matching query {query} in table {str(table)}"
+        )
     elif len(res) == 0:
         return None
     else:

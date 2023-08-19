@@ -1,5 +1,4 @@
 def get_relocation(Main, stage, name, RelocDescriptor, utils):
-    infos = []
     elf = stage.elf
     cc = Main.cc
     r = RelocDescriptor("clk_code", None, None, None, None,
@@ -35,8 +34,7 @@ def get_relocation(Main, stage, name, RelocDescriptor, utils):
         reloffset = 0x9ff00000 - 0x800a0000  # hand calculated
         r.set_reloffset(reloffset)
         mod = r.relmod
-        infos.append(r.get_row_information())
-
+        infos = [r.get_row_information()]
         # keep origional c_runtime_cpu_setup since it is run from orig location
         # after relocation. "unrelocate" it but keep orig
         name = "c_runtime_cpu_setup"

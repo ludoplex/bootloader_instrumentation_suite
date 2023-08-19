@@ -37,11 +37,7 @@ class task_ran(object):
         self.n = n
 
     def __call__(self, task, values):
-        if self.n in values:
-            ctime = self.n
-            return (time.time() - ctime) > 0
-        else:
-            return False
+        return time.time() - self.n > 0 if self.n in values else False
 
 
 class CodeTask(object):
@@ -50,41 +46,42 @@ class CodeTask(object):
             basename = self.basename
         if name is None:
             name = self.name
-        return "%s:%s" % (basename, name)
+        return f"{basename}:{name}"
 
     @classmethod
     def get_task_name(cls, basename, name):
         return cls.task_name(cls(None, None, False), basename, name)
 
     def __init__(self, name, cfg, init=True):
-        if init:
-            for a in ['uptodate', 'targets', 'actions']:
-                if not hasattr(self, a):
-                    setattr(self, a, [])
-            self.basename = cfg.name
-            self.name = name
-            self.file_dep = []
-            self.task_dep = []
-            self.other = []
-            self.build_cfg = cfg
-            self.root_dir = self.gf('root')
-            if os.path.isdir(os.path.join(self.root_dir, ".git")):
-                self.git = git_mgr.GitManager(self.root_dir)
-            else:
-                self.git = None
+        if not init:
+            return
+        for a in ['uptodate', 'targets', 'actions']:
+            if not hasattr(self, a):
+                setattr(self, a, [])
+        self.basename = cfg.name
+        self.name = name
+        self.file_dep = []
+        self.task_dep = []
+        self.other = []
+        self.build_cfg = cfg
+        self.root_dir = self.gf('root')
+        self.git = (
+            git_mgr.GitManager(self.root_dir)
+            if os.path.isdir(os.path.join(self.root_dir, ".git"))
+            else None
+        )
 
     def gf(self, field):
         return getattr(self.build_cfg, field)
 
     def path(self, rel):
-        p = pathlib.Path(self.root_dir) / rel
-        return p
+        return pathlib.Path(self.root_dir) / rel
 
     def save_timestamp(self):
-        return {'%stime' % self.name: time.time()}
+        return {f'{self.name}time': time.time()}
 
     def list_tasks(self):
-        l = {
+        return {
             'name': self.name,
             'basename': self.basename,
             #'verbosity': 2,
@@ -92,8 +89,7 @@ class CodeTask(object):
             'uptodate': self.uptodate,
             'targets': self.targets,
             'actions': self.actions,
-            }
-        return l
+        }
 
     def format_command(self, cmd):
         config_type = self.build_cfg.config_type if hasattr(self.build_cfg, "config_type") else ""
@@ -141,9 +137,8 @@ class CodeTaskBuild(CodeTask):
         if not printonly:
             c = ""
             for i in ['clean', 'build_prepare', 'build_cmd']:
-                l = self.gf(i)
-                if l:
-                    c += "%s; " % l            
+                if l := self.gf(i):
+                    c += f"{l}; "
         else:
             c = self.gf("build_cmd")
         #self.uptodate = [task_ran('config')]
@@ -199,7 +194,7 @@ class CodeTaskList():
             head = self.git.get_head()
             head = head.translate(None, "/")
             sha = self.git.get_commit()
-            gitinfo = "%s.%s" % (head, sha)
+            gitinfo = f"{head}.{sha}"
             return (gitinfo, sha)
         else:
             return (None, None)  #, None)
@@ -215,7 +210,7 @@ class CodeTaskList():
 
 class SourceLoader():
     def __init__(self, build, print_only=False):
-        self.init_only = True if not build else False
+        self.init_only = not build
         self.builds = build
         ss = Main.config_class_lookup("Software")
         target_software = Main.target_software
@@ -242,7 +237,7 @@ class SourceLoader():
         for c in self.code_tasks:
             # only if in bulid list
             if c.basename in self.builds:
-                name = "task_%s" % c.basename
+                name = f"task_{c.basename}"
                 tl = c.list_tasks
                 yield (name, tl)
                 #l.append((name, tl))

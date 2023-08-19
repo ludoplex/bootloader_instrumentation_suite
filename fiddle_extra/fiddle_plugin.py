@@ -45,7 +45,7 @@ class PluginResultFile():
                  parser_kws=None,
                  stage_dependent=False):
         if default_rel_path is None:
-            default_rel_path = "%s-file" % name
+            default_rel_path = f"{name}-file"
         self.default_rel_path = default_rel_path
         self.plugin = plugin
         self.name = name
@@ -53,7 +53,7 @@ class PluginResultFile():
         self.type = kind.name
         global _plugin_type
         if self.plugin.type_enum is _plugin_type.PostProcess and \
-           self.type_enum in [self.file_type.target,
+               self.type_enum in [self.file_type.target,
                               self.file_type.target_unique]:
             self.stage_dependent = True
         else:
@@ -69,27 +69,20 @@ class PluginResultFile():
     def full_path(self, stage=None):
         fs = getattr(getattr(Main.raw, self.plugin.type), self.plugin.name).Files
         raw = getattr(fs, self.name)
-        if raw.stage_dependent:
-            return getattr(raw, stage.stagename)
-        else:
-            return raw.path
+        return getattr(raw, stage.stagename) if raw.stage_dependent else raw.path
 
     def relative_path(self, args):
-        if self.from_arg:
-            if self.from_arg is True:
-                n = self.name
-            else:
-                n = self.from_arg
-            return getattr(args, n)
-        else:
+        if not self.from_arg:
             return self.default_rel_path
+        n = self.name if self.from_arg is True else self.from_arg
+        return getattr(args, n)
 
     def _setup_parser_info(self):
         if self.from_arg:
             if self.from_arg is not True:
-                self.arg_name = "--" + self.from_arg
+                self.arg_name = f"--{self.from_arg}"
             else:
-                self.arg_name = "--" + self.name
+                self.arg_name = f"--{self.name}"
 
             kws = {
                 "action": "store",
@@ -101,9 +94,7 @@ class PluginResultFile():
                 self.parser_kws = kws
 
     def to_obj_kws(self, args):
-        kws = {}
-        for i in ["type", "name", "stage_dependent"]:
-            kws[i] = getattr(self, i)
+        kws = {i: getattr(self, i) for i in ["type", "name", "stage_dependent"]}
         kws["relative_path"] = self.relative_path(args)
         return {self.name: kws}
 
@@ -117,8 +108,9 @@ class PluginResultFile():
 
     def parser_info(self):
         if not self.from_arg:
-            raise Exception("Plugin %s file %s info is not obtained from an argument" %
-                            (self.plugin.name, self.name))
+            raise Exception(
+                f"Plugin {self.plugin.name} file {self.name} info is not obtained from an argument"
+            )
         names = [] if not self.shortened else [self.shortened]
         names.append(self.arg_name)
         return (names, self.parser_kws)
@@ -155,16 +147,15 @@ class FiddlePlugin():
                                self.files.itervalues()))
         self.arg_parsers.extend(file_args)
 
-        self.parser = process_args.FiddleArgParser("F%splugin" %
-                                                   (self.name + " "),
-                                                   self,
-                                                   self.arg_parsers)
+        self.parser = process_args.FiddleArgParser(
+            f"F{self.name} plugin", self, self.arg_parsers
+        )
         self.args = self.parser.args
         self.task_mgr = self.parser.task_manager()
         if self.type_enum is self.plugin_type.PostProcess:
             self.task_mgr.postprocess_trace()
         else:
-            raise Exception("unsupported plugin type %s" % self.type)
+            raise Exception(f"unsupported plugin type {self.type}")
 
     def add_files(self, files):
         self.files.update({f.name: f for f in files})
@@ -173,10 +164,9 @@ class FiddlePlugin():
         return self.files[filename].full_path(stage)
 
     def get_setup_tasks(self, mgr):
-        tasks = []
         d = Main.raw.runtime.trace.data_dir
         dstdir = os.path.join(d, "plugin_data", self.name)
-        tasks.append(mgr._mkdir(dstdir))
+        tasks = [mgr._mkdir(dstdir)]
         tasks.extend(mgr.import_files(self.config_obj,
                                       getattr(Main.raw.PostProcess,
                                               self.name),

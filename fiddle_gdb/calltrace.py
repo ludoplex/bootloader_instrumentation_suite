@@ -37,7 +37,6 @@ class CloseLog():
         global now
         if now:
             self.do()
-        pass
 
     def do(self):
         global open_log
@@ -59,7 +58,7 @@ class WriteResults():
         self.kind = kind
         self.pc = pc
         self.call_count = count
-        self.entry = True if kind == "entry" else False
+        self.entry = kind == "entry"
         self.minimal = minimal
         global now
         if now:
@@ -67,15 +66,12 @@ class WriteResults():
 
     def do(self):
         global open_log
-        if self.entry:
-            c = " > "
-        else:
-            c = " < "
+        c = " > " if self.entry else " < "
         outstr = ("*" * (self.depth + 1)) + c + self.name
         if (not self.entry) and (not self.minimal):
             outstr += "@0x%x" % self.pc
         if self.line:
-            outstr += " [[%s]]" % self.line
+            outstr += f" [[{self.line}]]"
         outstr += "(%d)\n" % self.call_count
         if open_log:
             open_log.write(outstr)
@@ -135,7 +131,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
     @classmethod
     def settable(cls, name, c):
         try:
-            i = gdb.execute("x/x %s" % name, to_string=True).split()[0]
+            i = gdb.execute(f"x/x {name}", to_string=True).split()[0]
         except gdb.error as e:
             #c.gdb_print("%s cannot set breakpoint for %s\n" % (e,
              #                                                           name), "calltrace")
@@ -149,7 +145,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         self.depth = 0
         self.plugin = controller.subcommand_parsers[self.plugin_name].plugin
         try:
-            i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
+            i = gdb.execute(f"x/x {self.name}", to_string=True).split()[0]
         except gdb.error as e:
             controller.gdb_print("%s cannot set breakpoint for %s\n" % (e,
                                                                         self.name),
@@ -231,16 +227,10 @@ class CallTrace(gdb_tools.GDBPlugin):
         self.no_rec_funs.extend(args.recfns)
 
     def minimal(self, args):
-        if args.disabled is False:
-            self._minimal = False
-        else:
-            self._minimal = True
+        self._minimal = args.disabled is not False
 
     def sourceinfo(self, args):
-        if args.enabled is True:
-            self._sourceinfo = True
-        else:
-            self._sourceinfo = False
+        self._sourceinfo = args.enabled is True
 
     def stage_log(self, args):
         current = None
@@ -272,9 +262,9 @@ class CallTrace(gdb_tools.GDBPlugin):
 
     def setup_breakpoints(self, startbreak, stage):
         c = self.controller
-        c.call_count = 1        
+        c.call_count = 1
         if not gdb.current_progspace().filename:
-            gdb.execute("file %s" % stage.elf)
+            gdb.execute(f"file {stage.elf}")
         sname = stage.stagename
         if (sname in self.stage_logs.iterkeys()) and self.stage_logs[sname]:
             global open_log
@@ -285,8 +275,7 @@ class CallTrace(gdb_tools.GDBPlugin):
         sname = stage.stagename
         hasblacklist = sname in self.blacklisted.iterkeys()
         for (name, addr) in functions:
-            if (not hasblacklist) or (hasblacklist and
-                                      (name not in self.blacklisted[stage.stagename])):
+            if not hasblacklist or name not in self.blacklisted[stage.stagename]:
                 norec = name in self.no_rec_funs
                 if CallEntryBreak.settable(name, c):
                     CallEntryBreak(name, c, stage, norec)

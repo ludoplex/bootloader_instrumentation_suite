@@ -93,12 +93,30 @@ class TITable():
                        TITable.ADDRESS: [u'Physical Address', u'Physical', u'Base Address', u'Base']}
         self.col_info = {}
         self.var_sub_fn = var_sub_fn
-        self._regexps = {TITable.TYPE: typre if typre else re.compile("^(R|W|RW|R/W|RW 1toClr|Reserved|R/OCO)$"),
-                         TITable.NAME: namere if namere else re.compile("(^[A-Z][A-Z0-9_%s]+)$|^(Reserved for non-GP devices.)$|^RESERVED$" % ''.join(self._possible_varnames)),
-                         TITable.WIDTH: widthre if widthre else re.compile("^[0-9]{1,2}$"),
-                         TITable.RESET: resetre if resetre else re.compile("^([CW]{1})|(C \( refer to)$"),
-                         TITable.OFFSET: offsetre if offsetre else re.compile("^0 ?x ?(?P<base>([0-9A-F]{4} ?[0-9A-F]{4})|([0-9A-F]{1,4}))$"),
-                         TITable.ADDRESS: addrre if addrre else re.compile("^(0 ?x ?)?(?P<base>([0-9A-F]{4} ?[0-9A-F]{4,5})|-|N/A)$")}
+        self._regexps = {
+            TITable.TYPE: typre
+            if typre
+            else re.compile("^(R|W|RW|R/W|RW 1toClr|Reserved|R/OCO)$"),
+            TITable.NAME: namere
+            if namere
+            else re.compile(
+                f"(^[A-Z][A-Z0-9_{''.join(self._possible_varnames)}]+)$|^(Reserved for non-GP devices.)$|^RESERVED$"
+            ),
+            TITable.WIDTH: widthre if widthre else re.compile("^[0-9]{1,2}$"),
+            TITable.RESET: resetre
+            if resetre
+            else re.compile("^([CW]{1})|(C \( refer to)$"),
+            TITable.OFFSET: offsetre
+            if offsetre
+            else re.compile(
+                "^0 ?x ?(?P<base>([0-9A-F]{4} ?[0-9A-F]{4})|([0-9A-F]{1,4}))$"
+            ),
+            TITable.ADDRESS: addrre
+            if addrre
+            else re.compile(
+                "^(0 ?x ?)?(?P<base>([0-9A-F]{4} ?[0-9A-F]{4,5})|-|N/A)$"
+            ),
+        }
         self.var_rules = var_rules
         self.var_names = []
         if len(var_rules) > 0:
@@ -140,7 +158,7 @@ class TITable():
         index = 0
 
         suffix = self.phys_addrs[aname] if self.phys_addrs[aname] else ""
-        if not (aname == TITable.ADDRESS) and not suffix:
+        if aname != TITable.ADDRESS and not suffix:
             suffix = aname
         if suffix == "Physical Address":
             suffix = ""
@@ -149,7 +167,7 @@ class TITable():
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
         shortname = name
         #print "%s %s %s" % (name, suffix, TITable.ADDRESS)
-        name = name + '_' + suffix if suffix else name
+        name = f'{name}_{suffix}' if suffix else name
         #print name
         for val in [nonbaseaddr, nonbaseoffset, name]:
             if "+" in val or any(map(lambda x: x in val, self.var_names)):
@@ -159,7 +177,7 @@ class TITable():
             for val in [nonbaseaddr, nonbaseoffset, name]:
                 for var in self.var_names:
                     if var in val:
-                        if (v is not None) and ((not v == var) and (v is not "+")):
+                        if v is not None and v != var and v is not "+":
                             raise Exception("we can only handle exactly 1 variable subst,"
                                             " found %s [%s]" %
                                             ({k: v[i] for (k, v) in results.iteritems()},
@@ -205,7 +223,7 @@ class TITable():
         return newresults
 
     def _add_var_rules(self):
-        map(self.var_names.extend, list(v.iterkeys() for v in self.var_rules.itervalues()))
+        map(self.var_names.extend, [v.iterkeys() for v in self.var_rules.itervalues()])
         self.var_names = list(set(self.var_names))  # remove duplicates
 
         allvars = ''.join(self.var_names)
@@ -213,7 +231,13 @@ class TITable():
         plus = "\s*\+|\s*\+\s*\(\s*([%s]\s*\*\s*(?P<mult1>%s)|((?P<mult0>%s)\s*\*\s*[%s])|[%s]\s*\*?)\s*\)|(\s*\+\s*\(\s*[%s]\s*\*)?|(\s*\+\s*\(\s*(%s)\s*\*?)" % (allvars, i, i, allvars, allvars, allvars, i)
         addrre = self.customaddrre if self.customaddrre else re.compile("^((0 ?x ?(?P<base>([0-9A-F]{4} ?[0-9A-F ]{4}))(%s)?)|-|N/A)$" % plus)
         offsetre = self.customoffsetre if self.customoffsetre else re.compile("^0 ?x ?(?P<base>([0-9A-F]{4} ?[0-9A-F]{4})|([0-9A-F]{1,4}))(%s)?$" % plus)
-        namere = self._regexps[TITable.NAME] if self.customnamere else re.compile("(^[A-Z][A-Z0-9_%s]+?)$|^(Reserved for non-GP devices.)$|^RESERVED$" % allvars)
+        namere = (
+            self._regexps[TITable.NAME]
+            if self.customnamere
+            else re.compile(
+                f"(^[A-Z][A-Z0-9_{allvars}]+?)$|^(Reserved for non-GP devices.)$|^RESERVED$"
+            )
+        )
         self._regexps[TITable.OFFSET] = offsetre
         self._regexps[TITable.ADDRESS] = addrre
         self._regexps[TITable.NAME] = namere
@@ -227,24 +251,27 @@ class TITable():
             for v in vals:
                 if v in text:
                     return t
-        for k in self.phys_addrs.iterkeys():
-            if unicode(k) == unicode(text):
-                return TITable.ADDRESS
-        return None
+        return next(
+            (
+                TITable.ADDRESS
+                for k in self.phys_addrs.iterkeys()
+                if unicode(k) == unicode(text)
+            ),
+            None,
+        )
 
     def add_column(self, name, obj, typ=None):
         if typ is None:
             typ = self.is_column(obj)
         if typ is None:
-            raise Exception("%s is not a column title" % obj)
+            raise Exception(f"{obj} is not a column title")
         key = typ
         if typ == TITable.ADDRESS:
             text = name
             text = re.sub("Physical", "", text)
             text = re.sub("Address", "", text)
             text = re.sub("Base", "", text)
-            text = text.strip()
-            if text:
+            if text := text.strip():
                 if text not in self.phys_addrs:
                     self.phys_addrs[text] = ''
                 key = text
@@ -259,9 +286,8 @@ class TITable():
                 if name not in self.phys_addrs:
                     self.phys_addrs[name] = ''
                 key = name
-        else:
-            if typ in [k for (k, v) in self.col_info.iteritems() if v.typ == typ]:
-                return
+        elif typ in [k for (k, v) in self.col_info.iteritems() if v.typ == typ]:
+            return
         regex = self._regexps[typ]
         #print "adding col %s of type %s (regex: %s)" % (key, typ, regex.pattern)
         left = obj.bbox[0]
@@ -331,14 +357,12 @@ class TIPDF():
         otext = cls.get_entry_text(obj)
         if otext == text:
             return obj
-        else:
-            if isinstance(obj, layout.LTTextBox):
-                i = 0
-                for l in obj:
-                    ret = cls.get_text_obj(l, text)
-                    if ret:
-                        return ret
-            return None
+        if isinstance(obj, layout.LTTextBox):
+            i = 0
+            for l in obj:
+                if ret := cls.get_text_obj(l, text):
+                    return ret
+        return None
 
 
     @classmethod
@@ -373,12 +397,12 @@ class TIPDF():
                     results[closest_field] += [obj]
                     added = True
             elif isinstance(obj, layout.LTTextLine) and \
-                            ((closest_field == TITable.OFFSET) or \
-                             (closest_field in [a.name for a in addrfield])):
+                                ((closest_field == TITable.OFFSET) or \
+                                 (closest_field in [a.name for a in addrfield])):
 
                 fields = [j for j in text.rsplit(")", 2) if len(j) > 0]
                 if len(fields) == 2:
-                    fields = [f+")" for f in fields]
+                    fields = [f"{f})" for f in fields]
                     off = fields[0].strip()
                     adr = fields[1].strip()
                     if adr[0] == '+':  # move + to end of off if @ start of adr
@@ -393,7 +417,7 @@ class TIPDF():
                         return False
 
                     if col1.regex.match(off) \
-                       and col2.regex.match(adr):
+                           and col2.regex.match(adr):
                         #print "splitting objects"
                         (oobj, aobj) = cls.split_text(obj, off, adr)
                         # TODO: split text into two obbjects
@@ -406,7 +430,9 @@ class TIPDF():
         linetext = cls.get_entry_text(line).strip()
         startindex = linetext.index(text)
         endindex = startindex + len(text)
-        chars = filter(lambda x: isinstance(x, layout.LTAnno) or isinstance(x, layout.LTChar), line._objs)
+        chars = filter(
+            lambda x: isinstance(x, (layout.LTAnno, layout.LTChar)), line._objs
+        )
         newline = chars[-1]
         line._objs = chars[startindex:endindex] + [newline]  # keep newline char
         return line
@@ -421,14 +447,13 @@ class TIPDF():
         second.__dict__ = dict(line.__dict__)
         (o1, o2) = (cls.strip_text_line(line, text1),
                     cls.strip_text_line(second, text2))
-        if textbox:
-            box2 = object.__new__(box.__class__)
-            box2.__dict__ = dict(box.__dict__)
-            box._objs = [o1]
-            box2._objs = [o2]
-            return (box, box2)
-        else:
+        if not textbox:
             return (o1, o2)
+        box2 = object.__new__(box.__class__)
+        box2.__dict__ = dict(box.__dict__)
+        box._objs = [o1]
+        box2._objs = [o2]
+        return (box, box2)
 
 
     @classmethod
@@ -446,8 +471,7 @@ class TIPDF():
     def is_name_header(cls, obj, name):
         if isinstance(obj, layout.LTText):
             text = cls.get_entry_text(obj)
-            match = cls.search_text_box(obj, name)
-            if match:
+            if match := cls.search_text_box(obj, name):
                 return obj
         return None
 
@@ -459,7 +483,7 @@ class TIPDF():
             if isinstance(l, layout.LTText):
                 lcenter = cls.calculate_center(l)
                 if cls.in_same_row(namecol, l, t) and (abs(lcenter - physcenter) <= 0.2):
-                    text += cls.get_entry_text(l) + " "
+                    text += f"{cls.get_entry_text(l)} "
         return text.strip()
 
     @classmethod
@@ -472,7 +496,7 @@ class TIPDF():
         return (ttop >= top) and (tbottom <= (bottom + t.label_bottom_offset))
 
     @classmethod
-    def is_not_in_table_bounds(cle, tablestart, tableend, o):
+    def is_not_in_table_bounds(cls, tablestart, tableend, o):
         return ((o.bbox[1] > tablestart) or (tableend and (o.bbox[3] < tableend)))
 
     @classmethod
@@ -496,15 +520,14 @@ class TIPDF():
             if cls.is_not_in_table_bounds(tablestart, tableend, o):
                 continue
             for i in t._names[TITable.NAME]:
-                c = cls.is_name_header(o, i)
-                if c:
+                if c := cls.is_name_header(o, i):
                     namecol = o
-                    t.add_column(i, o, TITable.NAME)
+                    t.add_column(i, namecol, TITable.NAME)
                     t.name = i
             if namecol:
                 break
         if namecol is None:
-            raise Exception("No name column found in %s" % table)
+            raise Exception(f"No name column found in {table}")
         # now find table label row height by finding first rect below namecol label
         closest_rect = None
         for o in page:
@@ -522,7 +545,7 @@ class TIPDF():
                     if (odiff > 0) and (odiff < cdiff):
                         closest_rect = o
         if closest_rect is None:
-            t = "No horizonal line found near '%s'" % namecol
+            t = f"No horizonal line found near '{namecol}'"
             raise Exception(t)
         # pretend namecol bottom is at closest_rect
         namecol.bbox = (namecol.bbox[0], closest_rect.bbox[1],
@@ -533,19 +556,15 @@ class TIPDF():
             if not isinstance(o, layout.LTText):
                 continue
             if cls.in_same_row(namecol, o, t):
-                c = t.is_column(o)
-                if c and c == TITable.ADDRESS:
-                    text = cls.get_full_addr_col_label(page, namecol, o, t)
-                    t.add_column(text, o, TITable.ADDRESS)
-                elif c:
-                    t.add_column(cls.get_entry_text(o), o, c)
+                if c := t.is_column(o):
+                    if c == TITable.ADDRESS:
+                        text = cls.get_full_addr_col_label(page, namecol, o, t)
+                        t.add_column(text, o, TITable.ADDRESS)
+                    else:
+                        t.add_column(cls.get_entry_text(o), o, c)
         if t.force_phys_addrs:
-            if not set(t.phys_addrs.iterkeys()) == set(t.force_phys_addrs):
-                # figure split out column
-                missing = []
-                for k in t.force_phys_addrs:
-                    if k not in t.phys_addrs:
-                        missing.append(k)
+            if set(t.phys_addrs.iterkeys()) != set(t.force_phys_addrs):
+                missing = [k for k in t.force_phys_addrs if k not in t.phys_addrs]
                 if len(missing) == 2:
                     for k in t.col_info:
                         addrs = k.split()
@@ -647,18 +666,14 @@ class TIPDF():
         common = {f: results[f][i] for f in commonfields}
 
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
-        name = name + '_' + suffix if suffix else name
+        name = f'{name}_{suffix}' if suffix else name
 
         variablefield = any(map(lambda x: x in offset, t.var_names))
 
         exceptions = ["TLL_CHANNEL_CONF_i"]
         if variablefield:
             v = [x for x in t.var_names if x in offset][0]
-            if name in exceptions:
-                offsets = range(0, 2*0x4, 0x4)
-            else:
-                offsets = t.var_rules[aname][v]
-
+            offsets = range(0, 2*0x4, 0x4) if name in exceptions else t.var_rules[aname][v]
             for o in offsets:
                 rowname = re.sub(v, str(o), name)
                 c = dict(common)
@@ -711,16 +726,13 @@ class TIPDF():
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
 
         variablefield = any(map(lambda x: x in name, t.var_names))
-        name = name + '_' + suffix if suffix else name
+        name = f'{name}_{suffix}' if suffix else name
 
         exceptions = ["TPCC_DRAEj", "TPCC_TRAEHj"]
         if variablefield:
             v = [x for x in t.var_names if x in offset][0]
             if v == 'j':
-                if name in v:
-                    offsets = range(0, 7*0x8, 0x8)
-                else:
-                    offsets = t.var_rules[aname][v]
+                offsets = range(0, 7*0x8, 0x8) if name in v else t.var_rules[aname][v]
             else:
                 offsets = t.var_rules[aname][v]
             for o in offsets:
@@ -773,7 +785,7 @@ class TIPDF():
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
         name = re.sub(" where k = j -", "", name)
         variablefield = any(map(lambda x: x in name, t.var_names))
-        name = name + '_' + suffix if suffix else name
+        name = f'{name}_{suffix}' if suffix else name
         exceptions = ["GPMC_BCH_RESULT0_i", "GPMC_BCH_RESULT1_i", "GPMC_BCH_RESULT2_i",
                       "GPMC_BCH_RESULT3_i"]
         if variablefield:
@@ -835,16 +847,12 @@ class TIPDF():
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
 
         variablefield = any(map(lambda x: x in name, t.var_names))
-        name = name + '_' + suffix if suffix else name
+        name = f'{name}_{suffix}' if suffix else name
         exceptions = ["SDRC_ACTIM_CTRLA_p", "SDRC_ACTIM_CTRLB_p"]
 
         if variablefield:
             v = [x for x in t.var_names if x in name][0]
-            if name in exceptions:
-                    offsets = [0, 0x28]
-            else:
-                offsets = t.var_rules[aname][v]
-
+            offsets = [0, 0x28] if name in exceptions else t.var_rules[aname][v]
             for o in offsets:
                 rowname = re.sub(v, str(o), name)
                 c = dict(common)
@@ -950,11 +958,7 @@ class TIPDF():
         common = {f: results[f][i] for f in commonfields}
 
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
-        if 'VID1' in t.name:
-            n = 1
-        else:
-            n = 2
-
+        n = 1 if 'VID1' in t.name else 2
         regexps = {aname: t._regexps[TITable.ADDRESS],
                    TITable.OFFSET: t._regexps[TITable.OFFSET]}
         addrvalue = results[aname][i]
@@ -1063,21 +1067,14 @@ class TIPDF():
 
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
         if i == 0:
-            if '2A' in aname:
-                baseaddr = 0x480BD9C0
-            else:
-                baseaddr = 0x480BDDC0
+            baseaddr = 0x480BD9C0 if '2A' in aname else 0x480BDDC0
         else:
-            if '2A' in aname:
-                baseaddr = 0x480BD9C4
-            else:
-                baseaddr = 0x480BDDC4
-
+            baseaddr = 0x480BD9C4 if '2A' in aname else 0x480BDDC4
         for off in range(0, 0x8*7, 0x8):
             addr = baseaddr + off
             c = dict(common)
             suffix = "CODEH" if i == 0 else "CODEV"
-            c[TITable.NAME] = name + '_' + suffix
+            c[TITable.NAME] = f'{name}_{suffix}'
             c[TITable.ADDRESS] = "0x%x" % addr
             c[TITable.OFFSET] = "0x%x" % off
             rows.append(c)
@@ -1373,10 +1370,7 @@ class TIPDF():
                     continue
                 elif isinstance(l, layout.LTText):
                     s = cls.get_text(l).strip()
-                    if s == text:
-                        return l
-                    else:
-                        return cls.search_text_box(l, text)
+                    return l if s == text else cls.search_text_box(l, text)
                 elif isinstance(l, layout.LTContainer):
                     return cls.search_text_box(l, text)
         return None
@@ -1393,23 +1387,20 @@ class TIPDF():
                     continue
                 elif isinstance(l, layout.LTText):
                     s = cls.get_text(l).strip()
-                    if s == text:
-                        return l
-                    else:
-                        return cls.found_table(l, text)
+                    return l if s == text else cls.found_table(l, text)
                 elif isinstance(l, layout.LTContainer):
                     return cls.found_table(l, text)
         return None
 
     @classmethod
     def sort_results(cls, results):
-        newresults = {}
-        for (k, v) in results.iteritems():
-
-            newresults[k] = [cls.get_entry_text(i) for i in sorted(v,
-                                                                   reverse=True,
-                                                                   key=lambda o: o.bbox[1])]
-        return newresults
+        return {
+            k: [
+                cls.get_entry_text(i)
+                for i in sorted(v, reverse=True, key=lambda o: o.bbox[1])
+            ]
+            for k, v in results.iteritems()
+        }
 
     @classmethod
     def filter_results(cls, results, t,  name):
@@ -1635,8 +1626,7 @@ class TIPDF():
         interpreter = pdfinterp.PDFPageInterpreter(rsrcmgr, device)
         outlines = document.get_outlines()
         registers = {}
-        pages = dict((pageno, page) for (pageno, page)
-                     in enumerate(pdfpage.PDFPage.create_pages(document)))
+        pages = dict(enumerate(pdfpage.PDFPage.create_pages(document)))
         for xref in document.xrefs:
             for oid in xref.get_objids():
                 obj = document.getobj(oid)
@@ -1779,11 +1769,10 @@ if __name__ == '__main__':
 
 
 def parse(pdf, output, verbose=False):
-    out = open(output, "w")
-    p = open(pdf, "rb")
-    TIPDF.process_pdf(p, out, verbose)
-    if out.tell() < 1:
-        out.close()
-        return False
-    out.close()
+    with open(output, "w") as out:
+        p = open(pdf, "rb")
+        TIPDF.process_pdf(p, out, verbose)
+        if out.tell() < 1:
+            out.close()
+            return False
     return True

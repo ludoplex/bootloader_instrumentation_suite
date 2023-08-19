@@ -55,14 +55,10 @@ def _raw_field_name(obj, attr):
         return attr
     classname = obj.__class__.__name__
     name = ""
-    if (not classname in ["Main", "Target"]) and hasattr(obj, "name"):
-        name = obj.name + "."
-    if name and classname in "Main":
-        classname = ""
-    else:
-        classname = classname + "."
-    key = "%s%s%s" % (classname, name, attr)
-    return key
+    if classname not in ["Main", "Target"] and hasattr(obj, "name"):
+        name = f"{obj.name}."
+    classname = "" if name and classname in "Main" else f"{classname}."
+    return f"{classname}{name}{attr}"
 
 def _get_raw_config(obj, attr):
     b = Main.raw
@@ -93,29 +89,21 @@ def _update_raw_config(obj, attr, value, debug=False):
 
 class SpecialConfig(object):
     def _update_raw(self, attr, value):
-        name = ""
-        if self.name:
-            name = "%s." % self.name
-        self.software._update_raw("%s.%s%s" %
-                                  (self.typ,
-                                   name, attr),
-                                  value)
+        name = f"{self.name}." if self.name else ""
+        self.software._update_raw(f"{self.typ}.{name}{attr}", value)
 
     def __getattr__(self, field):
         special = SpecialConfig.special_fields
-        if name in special:
-            val = super(type(self), self).__getattribute__(self._gettr_name(field))
-            if self._gettr_name(field, True):
-                return val
-            else:
-                val = self.software.populate_path(val)
-                setattr(self._gettr_name(field),
-                        val)
-                setattr(self._gettr_name(field, True),
-                        True)
-                return val
-        else:
+        if name not in special:
             return super(type(self), self).__getattribute__(field)
+        val = super(type(self), self).__getattribute__(self._gettr_name(field))
+        if not self._gettr_name(field, True):
+            val = self.software.populate_path(val)
+            setattr(self._gettr_name(field),
+                    val)
+            setattr(self._gettr_name(field, True),
+                    True)
+        return val
 
 
     def __setattr__(self, field, value):
@@ -128,19 +116,19 @@ class SpecialConfig(object):
 
     def _gettr_name(self, n, checked=False):
         if checked:
-            n = n + "_checked"
-        return "_" + n
+            n = f"{n}_checked"
+        return f"_{n}"
 
     def setfield(self, n, default=None):
         v = getattr(self, n, default)
         if n not in SpecialConfig.special_fields:
             setattr(self, n, v)
-            self._update_raw(n, v)
         else:
             setattr(self, self._gettr_name(n), v)
             setattr(self, self._gettr_name(n, True),
                     v)
-            self._update_raw(n, v)
+
+        self._update_raw(n, v)
 
     def __init__(self, name, info, software, typ):
         try:
@@ -166,20 +154,22 @@ class ConfigFile(SpecialConfig):
         self.setfield("subtype", "")
         self.setfield("cache", True)
         generated = getattr(info, "generate", False) or "generator" in info.keys() \
-                    or "command" in info.keys() or self.type in ["log", "target", "image"]
+                        or "command" in info.keys() or self.type in ["log", "target", "image"]
         self.setfield("generate", generated)
         self.setfield("imported", False)
         self.setfield("file_deps", [])
         if not (self.generate or hasattr(self, "path")):
-            raise ConfigException("Non-generated file %s (%s) needs a  path definition"
-                                  % (name, software.name))
+            raise ConfigException(
+                f"Non-generated file {name} ({software.name}) needs a  path definition"
+            )
 
         if not hasattr(self, "relative_path") and not hasattr(self, "path"):
             self.setfield("relative_path", name)
 
-        if not self.type in self.supported_types:
-            raise ConfigException("File %s (%s) has unknown type '%s', should be one of %s"
-                                  % (name, software.name, self.type, self.supported_types))
+        if self.type not in self.supported_types:
+            raise ConfigException(
+                f"File {name} ({software.name}) has unknown type '{self.type}', should be one of {self.supported_types}"
+            )
 
 
 class Reloc(SpecialConfig):
@@ -227,8 +217,8 @@ class ConfigObject(object):
     def __init__(self, kw, name=None, default=False):
         global registry
         global defaults
-        self.default = default
         v = None
+        self.default = default
         if name is not None:
             self.name = name
         else:
@@ -247,17 +237,20 @@ class ConfigObject(object):
                 default_location = getattr(Main.default_raw, self.__class__.__name__)
                 v = getattr(default_location, f, None)
                 if v is None:
-                    raise ConfigException("Missing field '%s' in "
-                                          "configuration %s" % (f, self.__class__.__name__))
+                    raise ConfigException(
+                        f"Missing field '{f}' in configuration {self.__class__.__name__}"
+                    )
                 kw[f] = v
         self._files = {}
         self._configs = []
         self._GDB_configs = []
-        for (k, v) in kw.iteritems():
+        for k, v in kw.iteritems():
             if k == "Files":
-                for (name, info) in v.iteritems():
-                    if name in self._files.keys():
-                        raise ConfigException("A there is already a file named '%s' in the configuration for software '%s'" % (name, self.name))
+                for name, info in v.iteritems():
+                    if name in self._files:
+                        raise ConfigException(
+                            f"A there is already a file named '{name}' in the configuration for software '{self.name}'"
+                        )
                     self._files[name] = ConfigFile(name, info, self)
             elif k == "ExecConfig":
                 self._configs.append(ExecConfig(v, self, "exec"))
@@ -318,23 +311,21 @@ class ConfigObject(object):
         else:
             final = eval_format(item)
             do_again = isinstance(final, str) and "}" in final and "{" in final and len(final) > 2
-        do_again = do_again and (not item == final)
+        do_again = do_again and item != final
         # print "%s,%s -> %s" % (do_again, item, final)
-        if do_again:
-            return cls._do_format(final, kws, recurse - 1)
-        else:
-            return final
+        return cls._do_format(final, kws, recurse - 1) if do_again else final
 
     def populate_path_from_name(self, name, or_default=False, optional=True, do_setattr=False):
         if or_default:
             v = self.value_or_default(name)
+        elif optional and not hasattr(self, name):
+            return None
         else:
-            if optional and not hasattr(self, name):
-                return None
             v = getattr(self, name)
         if (not optional) and v is None:
-            raise ConfigException("Required path '%s' in '%s' not defined" %
-                                  (name, self.__class__.__name__))
+            raise ConfigException(
+                f"Required path '{name}' in '{self.__class__.__name__}' not defined"
+            )
         elif v is None:
             return None
         else:
@@ -376,10 +367,7 @@ class ConfigObject(object):
     def config_class_lookup(self, classname):
         global registry
         global defaults
-        if self.default:
-            d = defaults
-        else:
-            d = registry
+        d = defaults if self.default else registry
         try:
             regentry = d[classname]
         except KeyError:
@@ -393,20 +381,17 @@ class ConfigObject(object):
             return regentry
         matches = [i for i in regentry if i.name == name]
 
-        if len(matches) == 0:
-            raise ConfigException("no %s named %s found" % (classname, name))
+        if not matches:
+            raise ConfigException(f"no {classname} named {name} found")
         elif len(matches) > 1:
-            raise ConfigException("more than one %s named %s found" % (classname, name))
+            raise ConfigException(f"more than one {classname} named {name} found")
         else:
             return matches[0]
 
     def attr_exists(self, attr):
         try:
             a = getattr(self, attr)
-            if a is not None:
-                return True
-            else:
-                return False
+            return a is not None
         except AttributeError:
             return False
 
@@ -420,7 +405,7 @@ class ConfigObject(object):
             default_name = ""
             if self.__class__.__name__ not in ["Target", "Main"]:
                 global defaults
-                default_name = defaults[self.__class__.__name__][0].name + "."
+                default_name = f"{defaults[self.__class__.__name__][0].name}."
 
             val = self._populate_from_config("{%s.%s%s}" %
                                              (self.__class__.__name__, default_name, attr))
@@ -434,7 +419,7 @@ class ConfigObject(object):
         if self.default:
             return
         if not name:
-            name = "%s.%s" % (self.__class__.__name__, which)
+            name = f"{self.__class__.__name__}.{which}"
         path = getattr(self, which, None)
         if not self.default and path and (not os.path.exists(path)):
             raise ConfigException(message.format(name, path))
@@ -477,9 +462,10 @@ class Main(ConfigObject):
         self._update_raw("hw_info_path", self.hw_info_path)
         self.cc = self.populate_path_from_name("cc", or_default=True)
         self.cc = os.path.expanduser(self.cc)
-        if not os.path.exists(self.cc + "gcc"):
-            raise ConfigException("There does not appear to be a gcc compiler (Main.cc) at %sgcc"
-                                  % Main.cc)
+        if not os.path.exists(f"{self.cc}gcc"):
+            raise ConfigException(
+                f"There does not appear to be a gcc compiler (Main.cc) at {Main.cc}gcc"
+            )
         self._update_raw("cc", self.cc)
         self.test_data_path = self.populate_path(self.test_data_path)
         self._update_raw("test_data_path", self.test_data_path)
@@ -491,23 +477,28 @@ class Main(ConfigObject):
 
     @classmethod
     def populate_from_config(cls, value, use_default=True, is_default=False):
-        if (not isinstance(value, str)) or (not (("{" in value) and ("}" in value)) or
-                                            (len(value) < 3)):
+        if (
+            not isinstance(value, str)
+            or "{" not in value
+            or "}" not in value
+            or len(value) < 3
+        ):
             return value
         if not cls.raw:
             is_default = True
         if is_default:
             return value
-        else:
-            r = cls._do_format(value, cls.raw)
-            if isinstance(r, Exception):
-                if use_default:
-                    r2 = cls._do_format(value, cls.default_raw)
-                    if isinstance(r2, Exception):
-                        raise ConfigException("Unable to lookup template name '%s' in %s of config file (also: %s: %s)" % (r.args, value, r2.message, r2.args))
-                    else:
-                        r = r2
-            return r
+        r = cls._do_format(value, cls.raw)
+        if isinstance(r, Exception):
+            if use_default:
+                r2 = cls._do_format(value, cls.default_raw)
+                if isinstance(r2, Exception):
+                    raise ConfigException(
+                        f"Unable to lookup template name '{r.args}' in {value} of config file (also: {r2.message}: {r2.args})"
+                    )
+                else:
+                    r = r2
+        return r
 
     @classmethod
     def set_config(cls, key, value):
@@ -523,14 +514,10 @@ class Main(ConfigObject):
 
     @classmethod
     def get_config(cls, key, *args):
-        if key in cls.configs.iterkeys():
-            v = cls.configs[key]
-            if callable(v):
-                return v(*args)
-            else:
-                return v
-        else:
-            raise KeyError("Config value %s not set" % key)
+        if key not in cls.configs.iterkeys():
+            raise KeyError(f"Config value {key} not set")
+        v = cls.configs[key]
+        return v(*args) if callable(v) else v
 
     def _get_generic_config(self, name, key, stage="", catch_except=False):
         if not stage:
@@ -556,9 +543,9 @@ class Main(ConfigObject):
             s = stage
         else:
             s = stage.stagename
-        key = "%s.%s" % (name, key)
+        key = f"{name}.{key}"
         if stage:
-            key += ".%s" % s
+            key += f".{s}"
         self._update_raw(key, value)
 
     def set_runtime_config(self, key, value, stage=None, catch_except=False):
@@ -571,18 +558,22 @@ class Main(ConfigObject):
         return self._get_generic_config("policies", key, stage, catch_except)
 
     def get_target_config(self,  key="", stage=None, catch_except=False):
-        return self._get_generic_config("runtime", "target."+key, stage, catch_except)
+        return self._get_generic_config(
+            "runtime", f"target.{key}", stage, catch_except
+        )
 
     def get_static_analysis_config(self, key="", stage=None, catch_except=False):
         return self._get_generic_config("static_analysis", key, stage, catch_except)
 
     def stage_from_name(self, stagename):
-        s = None
-        for stage in self.object_config_lookup("TargetStage"):
-            if stage.stagename == stagename:
-                s = stage
-                break
-        return s
+        return next(
+            (
+                stage
+                for stage in self.object_config_lookup("TargetStage")
+                if stage.stagename == stagename
+            ),
+            None,
+        )
 
     @property
     def traces(self):
@@ -600,7 +591,7 @@ class Main(ConfigObject):
     def stages(self):
         if not self._stages:
             self._stages = self.object_config_lookup("TargetStage")
-            if 0 == len(self._stages):
+            if len(self._stages) == 0:
                 self._stages = defaults["TargetStage"]
 
         return self._stages
@@ -631,76 +622,79 @@ class HardwareClass(ConfigObject):
     required_fields = ["hosts"]
 
     def setup(self):
-        if not self.attr_exists("setup_done"):
-            self.populate_path_from_name("hw_info_path", or_default=True, do_setattr=True)
-            self._check_path("hw_info_path")
-            self._update_raw("hw_info_path", self.hw_info_path)
+        if self.attr_exists("setup_done"):
+            return
+        self.populate_path_from_name("hw_info_path", or_default=True, do_setattr=True)
+        self._check_path("hw_info_path")
+        self._update_raw("hw_info_path", self.hw_info_path)
 
-            self.setup_done = True
-            self.host_cfgs = {}
-            for h in self.hosts:
-                self.host_cfgs[h] = self.object_config_lookup("HostConfig", h)
+        self.setup_done = True
+        self.host_cfgs = {}
+        for h in self.hosts:
+            self.host_cfgs[h] = self.object_config_lookup("HostConfig", h)
 
-            if not self.attr_exists("addr_range"):
-                self.addr_range = Main.default_raw.HardwareClass._hw.addr_range
-            lo = long(self.addr_range[0])
-            hi = long(self.addr_range[1])
-            self.addr_range = intervaltree.IntervalTree(
-                [intervaltree.Interval(lo, hi)]
-            )
-            range_intervals = []
-            self.addr_range_names = []
-            if self.attr_exists("named_addr_ranges"):
-                for (k,[lo, hi]) in self.named_addr_ranges.iteritems():
-                    self.addr_range_names.append(k)
-                    inter = intervaltree.Interval(long(lo),
-                                                  long(hi))
-                    range_intervals.append(inter)
-                    setattr(self, k, inter)
-                    self._update_raw(k, inter)
+        if not self.attr_exists("addr_range"):
+            self.addr_range = Main.default_raw.HardwareClass._hw.addr_range
+        lo = long(self.addr_range[0])
+        hi = long(self.addr_range[1])
+        self.addr_range = intervaltree.IntervalTree(
+            [intervaltree.Interval(lo, hi)]
+        )
+        range_intervals = []
+        self.addr_range_names = []
+        if self.attr_exists("named_addr_ranges"):
+            for (k,[lo, hi]) in self.named_addr_ranges.iteritems():
+                self.addr_range_names.append(k)
+                inter = intervaltree.Interval(long(lo),
+                                              long(hi))
+                range_intervals.append(inter)
+                setattr(self, k, inter)
+                self._update_raw(k, inter)
 
-            self.ram_ranges = intervaltree.IntervalTree(range_intervals)
-            self.ram_ranges.merge_overlaps()
-            self.non_ram_ranges = self.addr_range
-            for r in self.ram_ranges:
-                self.non_ram_ranges.chop(r.begin, r.end)
-                self.non_ram_ranges.remove_overlap(r)
-            if not hasattr(self, "default_host"):
-                self.default_host = self.hosts[0]
+        self.ram_ranges = intervaltree.IntervalTree(range_intervals)
+        self.ram_ranges.merge_overlaps()
+        self.non_ram_ranges = self.addr_range
+        for r in self.ram_ranges:
+            self.non_ram_ranges.chop(r.begin, r.end)
+            self.non_ram_ranges.remove_overlap(r)
+        if not hasattr(self, "default_host"):
+            self.default_host = self.hosts[0]
 
 
 class HostConfig(ConfigObject):
     required_fields = ["tracing_methods"]
 
     def setup(self):
-        if not self.attr_exists("setup_done"):
-            self.setup_done = True
-            trace_names = self.tracing_methods
-            self.tracing_methods = []
-            k = "TraceMethod"
-            global registry
-            if not self.default:
-                lookup = registry[k]
-                for t in trace_names:
-                    if not any([t == i.name for i in lookup]):
-                        global defaults
-                        match = [i for i in defaults[k] if t == i.name]
-                        registry[k].extend(match)
-                        for m in match:
-                            m.default = False
-                            _merge_into_munch(Main.raw, {"TraceMethod":
-                                                         {m.name:
-                                                          getattr(Main.default_raw.TraceMethod,
-                                                                  m.name)}})
+        if self.attr_exists("setup_done"):
+            return
+        self.setup_done = True
+        trace_names = self.tracing_methods
+        self.tracing_methods = []
+        k = "TraceMethod"
+        global registry
+        if not self.default:
+            lookup = registry[k]
             for t in trace_names:
-                self.tracing_methods.append(self.object_config_lookup(k, t))
-            Main.supported_tracing_methods.update(self.tracing_methods)
-            if not self.attr_exists("host_software"):
-                self.host_software = None
-            if not self.attr_exists("is_baremetal"):
-                self.is_baremetal = False
-            if not self.attr_exists("default_tracing"):
-                self.default_tracing = [trace_names[0]]
+                if all(t != i.name for i in lookup):
+                    global defaults
+                    match = [i for i in defaults[k] if t == i.name]
+                    registry[k].extend(match)
+                    for m in match:
+                        m.default = False
+                        _merge_into_munch(Main.raw, {"TraceMethod":
+                                                     {m.name:
+                                                      getattr(Main.default_raw.TraceMethod,
+                                                              m.name)}})
+        self.tracing_methods.extend(
+            self.object_config_lookup(k, t) for t in trace_names
+        )
+        Main.supported_tracing_methods.update(self.tracing_methods)
+        if not self.attr_exists("host_software"):
+            self.host_software = None
+        if not self.attr_exists("is_baremetal"):
+            self.is_baremetal = False
+        if not self.attr_exists("default_tracing"):
+            self.default_tracing = [trace_names[0]]
 
 
 class TraceMethod(ConfigObject):
@@ -738,25 +732,26 @@ class Software(ConfigObject):
     required_fields = ["root"]
 
     def setup(self):
-        if not self.attr_exists("setup_done"):
-            self.manager = None
-            self.setup_done = True
-            self.root = self.populate_path_from_name("root", False, False, True)
-            self._update_raw("root", self.root)
-            if os.path.isdir(os.path.join(self.root, ".git")):
-                self.git = git_mgr.GitManager(self.root)
-            else:
-                self.git = None
+        if self.attr_exists("setup_done"):
+            return
+        self.manager = None
+        self.setup_done = True
+        self.root = self.populate_path_from_name("root", False, False, True)
+        self._update_raw("root", self.root)
+        if os.path.isdir(os.path.join(self.root, ".git")):
+            self.git = git_mgr.GitManager(self.root)
+        else:
+            self.git = None
+        map(lambda x: self.value_or_default(x, True),
+            ["build"])
+        if self.build:
             map(lambda x: self.value_or_default(x, True),
-                ["build"])
-            if self.build:
-                map(lambda x: self.value_or_default(x, True),
-                    ["compiler", "build_prepare", "build_cmd", "clean"])
+                ["compiler", "build_prepare", "build_cmd", "clean"])
 
-            self.basename = self.name
-            self.populate_path_from_name("compiler", optional=True, do_setattr=True)
-            if not self._files:
-                self._update_raw("Files", {})
+        self.basename = self.name
+        self.populate_path_from_name("compiler", optional=True, do_setattr=True)
+        if not self._files:
+            self._update_raw("Files", {})
 
 
 class Target(ConfigObject):
@@ -772,10 +767,7 @@ class Target(ConfigObject):
             if self.attr_exists("default_stages"):
                 Main.default_stages = [Main.stage_from_name(s) for s in self.default_stages]
             else:
-                if len(self.stages) > 0:
-                    Main.default_stages = [self.stages[0]]
-                else:
-                    Main.default_stages = Main.stages
+                Main.default_stages = [self.stages[0]] if len(self.stages) > 0 else Main.stages
 
 
 class TargetStage(ConfigObject):
@@ -789,70 +781,74 @@ class TargetStage(ConfigObject):
         todel = []
         self.stagename = self.name
         for (k, v) in d:
-            if k == "Reloc":
-                for (name, desc) in v.iteritems():
-                    self.reloc_descrs.append(Reloc(name, desc, self))
-                todel.append(k)
-            elif k == "Longwrite":
-                for (name, desc) in v.iteritems():
-                    self.longwrites.append(Longwrite(name, desc, self))
+            if k == "Longwrite":
+                self.longwrites.extend(
+                    Longwrite(name, desc, self) for name, desc in v.iteritems()
+                )
                 todel.append(k)
 
+            elif k == "Reloc":
+                self.reloc_descrs.extend(
+                    Reloc(name, desc, self) for name, desc in v.iteritems()
+                )
+                todel.append(k)
         for k in todel:
             del kw[k]
 
     def setup(self):
-        if not self.attr_exists("setup_done"):
-            self.setup_done = True
-            self.stagename = self.name
-            self.post_build_setup_done = False
+        if self.attr_exists("setup_done"):
+            return
+        self.setup_done = True
+        self.stagename = self.name
+        self.post_build_setup_done = False
 
-            ints = ["minpc",
-                    "maxpc",
-                    "exitpc",
-                    "entrypoint",
-                    "image_size"]
-            map(lambda x: self.value_or_default(x, True),
-                ints)
-            for i in ints:
-                val = getattr(self, i)
-                if type(val) == str:
-                    try:
-                        val = long(val)
-                    except ValueError:
-                        continue
-                    setattr(self, i, val)
-                    self._update_raw(i, val)
+        ints = ["minpc",
+                "maxpc",
+                "exitpc",
+                "entrypoint",
+                "image_size"]
+        map(lambda x: self.value_or_default(x, True),
+            ints)
+        for i in ints:
+            val = getattr(self, i)
+            if type(val) == str:
+                try:
+                    val = long(val)
+                except ValueError:
+                    continue
+                setattr(self, i, val)
+                self._update_raw(i, val)
 
-            self.target_cfg = Main.target_software
-            self.elf = self._populate_from_config(self.elf)
-            self.elfname = os.path.basename(self.elf)
-            if not hasattr(self, "image"):
-                self.image = self.elf
-            else:
-                self.image = self._populate_from_config(self.image)
+        self.target_cfg = Main.target_software
+        self.elf = self._populate_from_config(self.elf)
+        self.elfname = os.path.basename(self.elf)
+        if not hasattr(self, "image"):
+            self.image = self.elf
+        else:
+            self.image = self._populate_from_config(self.image)
 
     def post_build_setup(self, root):
-        if not self.post_build_setup_done:
-            self.post_build_setup_done = True
+        if self.post_build_setup_done:
+            return
+        self.post_build_setup_done = True
 
-            image = os.path.join(root, self.image)
-            elf = os.path.join(root, self.elf)
+        image = os.path.join(root, self.image)
+        elf = os.path.join(root, self.elf)
 
-            (lo, hi) = pure_utils.get_min_max_pcs(elf)
-            if self.minpc < 0:
-                self.minpc = lo
-            if self.maxpc < 0:
-                self.maxpc = hi
-            if self.entrypoint < 0:
-                self.entrypoint = pure_utils.get_entrypoint(elf)
-            if self.image_size < 0:
-                self.image_size = pure_utils.get_image_size(self.image)
-            if type(self.exitpc) == str:
-                stage = self.object_config_lookup("TargetStage", self.exitpc)
-                if not stage.post_build_setup_done:
-                    stage.post_build_setup(root)
-                self.exitpc = stage.entrypoint
+        (lo, hi) = pure_utils.get_min_max_pcs(elf)
+        if self.minpc < 0:
+            self.minpc = lo
+        if self.maxpc < 0:
+            self.maxpc = hi
+        if self.entrypoint < 0:
+            self.entrypoint = pure_utils.get_entrypoint(elf)
+        if self.image_size < 0:
+            self.image_size = pure_utils.get_image_size(self.image)
+        if type(self.exitpc) == str:
+            stage = self.object_config_lookup("TargetStage", self.exitpc)
+            if not stage.post_build_setup_done:
+                stage.post_build_setup(root)
+            self.exitpc = stage.entrypoint
 
 
 # override int parser so it also parses hex
@@ -867,32 +863,42 @@ toml.lexer = toml.lexer = toml.TomlLexer()
 
 
 cfg = "I_CONF"
-if cfg not in os.environ.keys():
+if cfg in os.environ:
+    config = os.path.realpath(os.environ[cfg])
+
+else:
     config = os.path.join(os.path.expanduser("~"), ".fiddle.cfg")
     if not os.path.exists(config):
         oldconfig = config
         path = os.path.dirname(os.path.realpath(__file__))
         path = os.path.realpath(os.path.join(path, ".."))
         config = os.path.join(path, "fiddle.cfg")
-else:
-    config = os.path.realpath(os.environ[cfg])
-
 if not os.path.exists(config):
-    raise ConfigException("No fiddle config file found at %s." % (config))
+    raise ConfigException(f"No fiddle config file found at {config}.")
 
 
 def setup_special_fields(bunched):
     specials = {
-        "Main": {"test_suite_dir": Main.test_suite_dir,
-                 "test_suite_path": Main.test_suite_dir,
+        "Main": {
+            "test_suite_dir": Main.test_suite_dir,
+            "test_suite_path": Main.test_suite_dir,
         },
         "config": config,
+    } | {
+        k: "{runtime.%s}" % k
+        for k in [
+            "current_stage",
+            "instance_root",
+            "trace_root",
+            "policy_name",
+            "host_name",
+            "trace_name",
+        ]
     }
-    specials.update({k: "{runtime.%s}" % k for k in ["current_stage", "instance_root", "trace_root", "policy_name", "host_name", "trace_name"]})
     if 'HardwareClass' in bunched.keys():
         specials["HardwareClass"] = {}
         for name in bunched.HardwareClass.keys():
-            specials["HardwareClass"]["%s" % name] = {"name": name}
+            specials["HardwareClass"][f"{name}"] = {"name": name}
     _merge_into_munch(bunched, specials)
 
 
@@ -906,16 +912,16 @@ Main.default_raw = munchify(default_settings)
 setup_special_fields(Main.default_raw)
 
 # initialize config in this order
-default_objs = []
-default_objs.append(configtypes["Main"](default_settings["Main"], default=True))
+default_objs = [configtypes["Main"](default_settings["Main"], default=True)]
 default_objs.append(configtypes["Target"](default_settings["Target"], "target", default=True))
 order = ["Software", "TraceMethod",  "HardwareClass", "HostConfig", "TargetStage", "PostProcess"]
 
 for i in order:
-    for (name, v) in default_settings[i].iteritems():
-        if not (i == "TraceMethod" and name == "run"):
-            default_objs.append(configtypes[i](v, name, default=True))
-
+    default_objs.extend(
+        configtypes[i](v, name, default=True)
+        for name, v in default_settings[i].iteritems()
+        if i != "TraceMethod" or name != "run"
+    )
 with open(config, 'r') as f:
     settings = toml.loads(f.read())
 
@@ -928,12 +934,12 @@ configtypes["Target"](settings["Target"], "target")
 for i in order:
     if i in settings.keys():
         for (name, v) in settings[i].iteritems():
-            if not (i == "TraceMethod" and name == "run"):
+            if i != "TraceMethod" or name != "run":
                 configtypes[i](v, name)
 
 for (k, v) in settings.iteritems():
     if k not in configtypes.keys():
-        raise ConfigException("%s is not a valid config section group name" % k)
+        raise ConfigException(f"{k} is not a valid config section group name")
 
 
 if "Main" not in registry.keys():
@@ -982,7 +988,7 @@ for (k, v) in items:
             instance.setup()
 items = registry.items()
 for (k, v) in items:
-    if not k == "Main" or k == "Target":
+    if k != "Main":
         globals()[k] = v
         for instance in v:
             instance.setup()

@@ -139,14 +139,14 @@ class AddrSpaceInfo():
                     for f in fields:
                         if "addr" in f:
                             entry[f] = long(entry[f], 0)
-                            entry[f+"lo"] = utils.addr_lo(long(entry[f]))
-                            entry[f+"hi"] = utils.addr_hi(long(entry[f]))
+                            entry[f"{f}lo"] = utils.addr_lo(long(entry[f]))
+                            entry[f"{f}hi"] = utils.addr_hi(long(entry[f]))
                         else:
                             entry[f] = entry[f].strip().lower()
-                            if f == 'perms':
-                                entry[f] = getattr(mmap_perms, entry[f])
-                            elif f == 'kind':
+                            if f == 'kind':
                                 entry[f] = getattr(mmap_type, entry[f])
+                            elif f == 'perms':
+                                entry[f] = getattr(mmap_perms, entry[f])
                         r[f] = entry[f]
                     #r['substage'] = substage
                     r.append()
@@ -205,7 +205,7 @@ class AddrSpaceInfo():
 
     def _open_tables(self, loc):
         self.h5file = tables.open_file(loc, mode="r")
-        self.h5group = self.h5file.get_node("/%s" % self.grpname)
+        self.h5group = self.h5file.get_node(f"/{self.grpname}")
         self.memmap_table = getattr(self.h5group, self.mem_tablename)
         self.reg_table = getattr(self.h5group, self.reg_tablename)
 

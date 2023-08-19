@@ -76,7 +76,7 @@ class CheckWrite():
     def do(self):
         global allowed_writes
         a = allowed_writes[self.stage.stagename][self.num]
-        if not len(a.search(self.start, self.end)) == 1:
+        if len(a.search(self.start, self.end)) != 1:
             gdb.write("#CAUGHT INVALID WRITE pc %x (%x-%x) substage %s (%s)\n" % (self.pc,
                                                                                   self.start,
                                                                                   self.end,
@@ -120,11 +120,7 @@ class Enforce(gdb_tools.GDBPlugin):
         do_halt = True
 
     def finalize_hook(self, args):
-        substages = False
-        for s in self.controller._stages.itervalues():
-            if s.substages:
-                substages = True
-                break
+        substages = any(s.substages for s in self.controller._stages.itervalues())
         if not substages:
             self.controller.gdb_print('No substages to set, do not know what to enforce',
                                       self.name)

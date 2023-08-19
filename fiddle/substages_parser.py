@@ -124,9 +124,9 @@ class MmapFileParser():
 
     def _parse(self, short_name, region_dict, parent):
         parentname = getattr(parent, 'short_name') if parent else ''
-        short_name = parentname + "." + short_name if parentname else short_name
+        short_name = f"{parentname}.{short_name}" if parentname else short_name
         if short_name in self.regions.iterkeys():
-            raise KeyError("%s in %s" % (short_name, list(self.regions.iteritems())))
+            raise KeyError(f"{short_name} in {list(self.regions.iteritems())}")
         current = MmapRegion(short_name, region_dict, self.stage, parent, self.values)
         self.regions[short_name] = current
         for (k, s) in current._raw_subregions.iteritems():
@@ -172,7 +172,7 @@ class SubstagesConfig():
         self._setup_region_info(mmap_info.regions if mmap_info else {}, prev_regions)
         # convert from set to list
         for i in ['writable', 'reclassified', 'defined', 'new', 'undefined']:
-            n = i + '_regions'
+            n = f'{i}_regions'
             s = getattr(self, n)
             setattr(self, n, list(s))
         self.new_reloc = False
@@ -200,7 +200,7 @@ class SubstagesConfig():
 
     def _include_region(self, all_regions, r_name, r_list, remove=False, force=False):
         if not remove and r_name not in all_regions.iterkeys():
-            raise Exception("No existing region named %s" % r_name)
+            raise Exception(f"No existing region named {r_name}")
         info = all_regions[r_name]
         if remove:
             if r_name in r_list:
@@ -224,8 +224,9 @@ class SubstagesConfig():
             reclass[r] = set()
             self._include_region(all_regions, r, reclass[r], force=True)
             if r not in self.defined_regions:
-                raise Exception("trying to reclassify region %s that is not defined in %s" % (r,
-                                                                                                  self.defined_regions))
+                raise Exception(
+                    f"trying to reclassify region {r} that is not defined in {self.defined_regions}"
+                )
 
         self.defined_regions.update(self.new_regions)
         self.defined_regions.difference_update(self.undefined_regions)
@@ -240,11 +241,7 @@ class SubstagesConfig():
                 self.writable_regions.add(r.short_name)
 
     def __repr__(self):
-        return "SubstagesConfig(num=%s, fn=%s, type=%s, regions=%s, writable=%s, allowed=%s)" % \
-            (self.num,
-             self.fn,
-             self.substage_type, self.defined_regions,
-             len(self.writable_regions), self.allowed_symbols)
+        return f"SubstagesConfig(num={self.num}, fn={self.fn}, type={self.substage_type}, regions={self.defined_regions}, writable={len(self.writable_regions)}, allowed={self.allowed_symbols})"
 
 
 class MmapRegion():
@@ -276,7 +273,9 @@ class MmapRegion():
             # if parent had csv, don't propigate csv definition
             self._csv = None
         self.contents = get_value(d, 'contents')
-        self.children_names = [self.short_name + '.' + s for s in self._raw_subregions.iterkeys()]
+        self.children_names = [
+            f'{self.short_name}.{s}' for s in self._raw_subregions.iterkeys()
+        ]
         self.parent = parent
         self.addresses_resolved = False
         self._convert_from_raw(values)
@@ -284,22 +283,21 @@ class MmapRegion():
         self.reclassification_rules = {0: self.typ}
 
     @classmethod
-    def check_regions(cle, regions):
+    def check_regions(cls, regions):
         for (k, v) in regions.iteritems():
             if not v.addresses_resolved:
-                raise Exception("ERROR: did not resolve address for region %s %s" % (k, v))
-            else:
-                addrs = v.addresses
-                for c in v.children_names:
-                    child = regions[c]
-                    for a in child.addresses:
-                        res = addrs.search(a)
-                        if len(res) < 1:
-                            raise Exception("%s's region (%s) not inside parent's %s (%s)") % \
+                raise Exception(f"ERROR: did not resolve address for region {k} {v}")
+            addrs = v.addresses
+            for c in v.children_names:
+                child = regions[c]
+                for a in child.addresses:
+                    res = addrs.search(a)
+                    if len(res) < 1:
+                        raise Exception("%s's region (%s) not inside parent's %s (%s)") % \
                                 (child.short_name,
-                                 child.addresses,
-                                 v.short_name,
-                                 v.addresses)
+                             child.addresses,
+                             v.short_name,
+                             v.addresses)
 
     def type_at_substage(self, substage):
         keys = filter(lambda x: x <= substage, sorted(self.reclassification_rules.iterkeys()))
@@ -327,17 +325,17 @@ class MmapRegion():
             if f == 'addresses':
                 self.resolve_addresses(values=values)
             else:
-                setattr(self, f, getattr(self, "_raw_%s" % f))
+                setattr(self, f, getattr(self, f"_raw_{f}"))
 
     def __repr__(self):
-        return "%s%s of type (%s) (parent %s, %s children) @[%s]" % (self.short_name,
-                                                                     ' (%s) ' % self.name
-                                                                     if self.name else '',
-                                                                     self.reclassification_rules,
-                                                                     self.parent.short_name
-                                                                     if self.parent else 'None',
-                                                                     len(self.children_names),
-                                                                     self.addresses)
+        return "%s%s of type (%s) (parent %s, %s children) @[%s]" % (
+            self.short_name,
+            f' ({self.name}) ' if self.name else '',
+            self.reclassification_rules,
+            self.parent.short_name if self.parent else 'None',
+            len(self.children_names),
+            self.addresses,
+        )
 
     def _resolve_special_addr_region(self, handle, allregions, values):
         if handle == 'remainder':
@@ -348,7 +346,7 @@ class MmapRegion():
                 if not all(map(lambda x: x.short_name == self.short_name or x.addresses_resolved,
                            siblings)):
                     return False
-                if not len(siblings) == len(self.parent.children_names):
+                if len(siblings) != len(self.parent.children_names):
                     return False
                 remainder = intervaltree.IntervalTree(self.parent.addresses)
                 for s in siblings:
@@ -372,25 +370,26 @@ class MmapRegion():
             return True
         else:
             reg_name = handle.rsplit(".", 1)[0]
-            if reg_name in allregions.iterkeys() and allregions[reg_name].addresses_resolved:
-                res = self._resolve_region_relative(handle, allregions)
-                if isinstance(res, type(handle)):
-                    return False
-                else:
-                    self.addresses = intervaltree.IntervalTree([res])
-                    return True
-            else:
+            if (
+                reg_name not in allregions.iterkeys()
+                or not allregions[reg_name].addresses_resolved
+            ):
                 return False
+            res = self._resolve_region_relative(handle, allregions)
+            if isinstance(res, type(handle)):
+                return False
+            self.addresses = intervaltree.IntervalTree([res])
+            return True
 
     def _add_addr_range(self, start, end):
-        if isinstance(start, (int, long)) and isinstance(end, (int, long)):
-            if not end >= start:
-                raise Exception("start addr %x must be smaller than end address %x for %s" %
-                                (start, end, self.short_name))
-            self.addresses.add(intervaltree.Interval(long(start), long(end)))
-        else:
-            raise Exception("One of start addr (%s) end addr (%s) is not an int for %s" %
+        if not isinstance(start, (int, long)) or not isinstance(end, (int, long)):
+            raise Exception(
+                f"One of start addr ({start}) end addr ({end}) is not an int for {self.short_name}"
+            )
+        if not end >= start:
+            raise Exception("start addr %x must be smaller than end address %x for %s" %
                             (start, end, self.short_name))
+        self.addresses.add(intervaltree.Interval(long(start), long(end)))
 
     def _resolve_region_relative(self, s, allregions):
         val = s
@@ -402,10 +401,7 @@ class MmapRegion():
                 r = allregions[regname]
                 ret = s
                 if r.addresses_resolved:
-                    if begin:
-                        ret = min(r.addresses).begin
-                    else:
-                        ret = max(r.addresses).end
+                    ret = min(r.addresses).begin if begin else max(r.addresses).end
                 return ret
 
             def _relocated(regname, fullname):
@@ -413,7 +409,7 @@ class MmapRegion():
                 ret = s
                 rend = fullname.rsplit(".", 1)[1]
                 cardinalres = re.match("([\d])+_relocated", rend)
-                cardinal = cardinalres.group(1)
+                cardinal = cardinalres[1]
                 relocindex = re.sub("[._relocated]+", "", rend)
                 if r.addresses_resolved:
                     start = min(r.addresses).begin
@@ -428,7 +424,7 @@ class MmapRegion():
                 '.end': lambda x: _start(x, False),
                 '_relocated': lambda x: _relocated(x, s)
             }
-            fullname = self.short_name + '.' + statedname
+            fullname = f'{self.short_name}.{statedname}'
             regname = None
             if statedname in allregions.iterkeys():
                 regname = statedname
@@ -498,10 +494,7 @@ class MmapRegion():
             while len(rest) >= 2:
                 op = rest[0]
                 remainder = rest[1]
-                if len(rest) > 2:
-                    rest = rest[2:]
-                else:
-                    rest = []
+                rest = rest[2:] if len(rest) > 2 else []
                 if op in operators.iterkeys() and isinstance(remainder, (int, long)) and isinstance(results, (int, long)):
                     results = operators[op](results, remainder)
                 else:
@@ -511,25 +504,25 @@ class MmapRegion():
         return val
 
     def _resolve_addr_region(self, a, allregions, values):
-        if type(a) == list:
-            (start, end) = a
-            if isinstance(start, (int, long)) and isinstance(end, (int, long)):
-                self._add_addr_range(start, end)
-                return True
-            else:
-                if not isinstance(start, (int, long)):
-                    sint = self._lookup_addr_value(start, allregions, values)
-                else:
-                    sint = start
-                if not isinstance(end, (int, long)):
-                    eint = self._lookup_addr_value(end, allregions, values)
-                else:
-                    eint = end
-                if sint is not None and eint is not None:
-                    self._add_addr_range(sint, eint)
-                    return True
-        else:
+        if type(a) != list:
             return self._resolve_special_addr_region(s, allregions)
+        (start, end) = a
+        if isinstance(start, (int, long)) and isinstance(end, (int, long)):
+            self._add_addr_range(start, end)
+            return True
+        else:
+            sint = (
+                self._lookup_addr_value(start, allregions, values)
+                if not isinstance(start, (int, long))
+                else start
+            )
+            if not isinstance(end, (int, long)):
+                eint = self._lookup_addr_value(end, allregions, values)
+            else:
+                eint = end
+            if sint is not None and eint is not None:
+                self._add_addr_range(sint, eint)
+                return True
         return False
 
     def resolve_addresses(self, all_regions={}, values={}):
@@ -559,7 +552,7 @@ class MmapRegion():
                     'include_children': False,
                     'type': perms,
                     }
-                self.children_names.append("%s.%s" % (self.short_name, name))
+                self.children_names.append(f"{self.short_name}.{name}")
             self.addresses = addrs
             f.close()
             all_resolved = True
@@ -594,8 +587,7 @@ class SubstagesFileParser():
     @classmethod
     def get_substage_fns(cls, f):
         with open(f, "r") as o:
-            data = yaml.load(o, OrderedDictYAMLLoader)
-            if data:
+            if data := yaml.load(o, OrderedDictYAMLLoader):
                 return list(data.iterkeys())
             else:
                 return []
@@ -603,5 +595,4 @@ class SubstagesFileParser():
     @classmethod
     def parse_file(cls, f):
         with open(f, "r") as o:
-            data = yaml.load(o, OrderedDictYAMLLoader)
-            return data
+            return yaml.load(o, OrderedDictYAMLLoader)

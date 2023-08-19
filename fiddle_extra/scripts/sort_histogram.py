@@ -47,15 +47,10 @@ if __name__ == "__main__":
 
         def __str__(self):
             if self.va == self.pc:
-                addrs = "pc=0x%s" % self.pc
+                addrs = f"pc=0x{self.pc}"
             else:
-                addrs = "va:0x%s/pc:0x%s" % (self.va, self.pc)
-            return "[repeat:%s] %s @ %s wrote %s bytes to 0x%s [%s]" % (self.repeat,
-                                                                        self.fn,
-                                                                        addrs,
-                                                                        self.numbytes,
-                                                                        self.dest_lo,
-                                                                        self.asm)
+                addrs = f"va:0x{self.va}/pc:0x{self.pc}"
+            return f"[repeat:{self.repeat}] {self.fn} @ {addrs} wrote {self.numbytes} bytes to 0x{self.dest_lo} [{self.asm}]"
 
     with open(args.input) as f:
         for l in f.readlines():

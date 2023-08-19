@@ -42,7 +42,7 @@ class InstructionAnalyzer():
 
     def get_flag_value(self, flag, cpsr):
         flags = {'n': (1 << 31), 'z': (1 << 30), 'c': (1 << 29), 'v': (1 << 28), 'q': (1 << 27)}
-        return True if ((cpsr & flags[flag]) == flags[flag]) else False
+        return cpsr & flags[flag] == flags[flag]
 
     # inclase there is a conditional store check
     def store_will_happen(self, ins, regs):
@@ -76,25 +76,28 @@ class InstructionAnalyzer():
             elif cc == 8:
                 # hi
                 return (self.get_flag_value('c', cpsr) is True) \
-                    and (self.get_flag_value('z', cpsr) is False)
+                        and (self.get_flag_value('z', cpsr) is False)
             elif cc == 9:
                 # ls
                 return (self.get_flag_value('c', cpsr) is False) \
-                    or (self.get_flag_value('z', cpsr) is True)
+                        or (self.get_flag_value('z', cpsr) is True)
             elif cc == 10:
                 # ge
                 return (self.get_flag_value('n', cpsr) == self.get_flag_value('v', cpsr))
             elif cc == 11:
                 # lt
-                return not (self.get_flag_value('n', cpsr) == self.get_flag_value('v', cpsr))
+                return self.get_flag_value('n', cpsr) != self.get_flag_value('v', cpsr)
             elif cc == 12:
                 # gt
                 return (self.get_flag_value('z', cpsr) is False) \
-                    and (self.get_flag_value('n', cpsr) == self.get_flag_value('v', cpsr))
+                        and (self.get_flag_value('n', cpsr) == self.get_flag_value('v', cpsr))
             elif cc == 13:
                 # le
-                return (self.get_flag_value('z', cpsr) is True) \
-                    or (not (self.get_flag_value('n', cpsr) == self.get_flag_value('v', cpsr)))
+                return self.get_flag_value(
+                    'z', cpsr
+                ) is True or self.get_flag_value('n', cpsr) != self.get_flag_value(
+                    'v', cpsr
+                )
             else:
                 return True
         else:
@@ -102,7 +105,7 @@ class InstructionAnalyzer():
 
     def is_thumb(self, cpsr):
         CPSR_THUMB = 0x20
-        return True if (cpsr & CPSR_THUMB) == CPSR_THUMB else False  # if cpsr bit 5 is set
+        return cpsr & CPSR_THUMB == CPSR_THUMB
 
     def calculate_store_offset(self, ins, regs):
         if self.has_condition_suffix(ins):

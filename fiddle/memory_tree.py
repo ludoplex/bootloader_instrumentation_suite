@@ -2,10 +2,7 @@ import intervaltree
 
 
 def int_repr(self):
-    if self.end > 0xFFFFFFFF:
-        ct = 16
-    else:
-        ct = 8
+    ct = 16 if self.end > 0xFFFFFFFF else 8
     fmt = "({0:%dX}, {1:%dX})" % (ct, ct)
     return fmt.format(self.begin, self.end)
 

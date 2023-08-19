@@ -154,10 +154,7 @@ class HookWrite(gdb_tools.GDBPlugin):
         name = controller.current_substage_name
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
-        pid = 2
-        # gdb.post_event(WriteLog("\n<%x longwrite...\n" % writepc))
-        if bp.relocated > 0:
-            pid = 3
+        pid = 3 if bp.relocated > 0 else 2
         for i in range(start, end, bp.writesize):
             waddr = i
             if bp.inplace:
@@ -193,9 +190,7 @@ class HookWrite(gdb_tools.GDBPlugin):
         lr = self.controller.get_reg_value('lr')
         size = writeinfo['end'] - writeinfo['start']
         dst = writeinfo['start']
-        pid = 0
-        if relocated > 0:
-            pid = 1
+        pid = 1 if relocated > 0 else 0
         self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated,
                          stage, substage, name)
 
